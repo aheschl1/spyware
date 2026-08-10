@@ -209,9 +209,10 @@ did land are deduplicated by the server's `(session, sequence)` uniqueness and
 reported in `ack.duplicates` — the database is the source of truth, no
 connection state survives on the server.
 
-Sessions do not stay open forever: activity (attach, every stored chunk)
-heartbeats the session, and a server-side sweeper automatically ends any open
-session with no activity for `API_SESSION_STALE_SECONDS` (default 300 s).
+Sessions do not stay open forever: activity (attach, stored chunks — the
+chunk heartbeat is throttled to roughly one write a minute) keeps the session
+fresh, and a server-side sweeper automatically ends any open session with no
+activity for `API_SESSION_STALE_SECONDS` (default 300 s).
 Reconnecting after that is a 409, and a new session must be created. The
 sweeper is also why a well-behaved client sends `finish`: it closes the
 session at the true end of recording rather than a sweep interval later.
@@ -228,6 +229,7 @@ where the client needs them:
 | `API_STREAM_ACK_WINDOW_SECONDS` | 2.0 | …or T seconds after the oldest unacked chunk |
 | `API_STREAM_HELLO_TIMEOUT_SECONDS` | 10 | AWAITING_HELLO deadline |
 | `API_STREAM_IDLE_TIMEOUT_SECONDS` | 300 | close idle sockets (`bye reason=idle`) |
+| `API_STREAM_INGEST_CONCURRENCY` | 4 | chunk stores in flight at once per connection |
 | `API_SESSION_STALE_SECONDS` | 300 | auto-end sessions with no activity |
 | `API_SESSION_SWEEP_INTERVAL_SECONDS` | 60 | sweeper cadence |
 

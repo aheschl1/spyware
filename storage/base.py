@@ -51,8 +51,8 @@ class BlobStore(Protocol):
 
     async def exists(self, key: str) -> bool: ...
 
-    async def delete(self, key: str) -> bool:
-        """Delete one object. ``False`` if it was not there."""
+    async def delete(self, key: str) -> None:
+        """Delete one object. Idempotent: an absent key is a no-op."""
         ...
 
     async def delete_prefix(self, prefix: str) -> int:

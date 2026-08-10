@@ -79,6 +79,7 @@ def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, st
         "API_STREAM_ACK_WINDOW_SECONDS": "0.5",
         "API_STREAM_HELLO_TIMEOUT_SECONDS": "5",
         "API_STREAM_IDLE_TIMEOUT_SECONDS": "30",
+        "API_STREAM_INGEST_CONCURRENCY": "4",
         "API_SESSION_STALE_SECONDS": "300",
         # Effectively parks the server's sweeper so test_stream can drive
         # end_stale deterministically.
@@ -267,7 +268,9 @@ async def clean_state(test_env: dict[str, str], migrated: None, s3: Any) -> Any:
     _empty_bucket(s3)
     yield
     from database.pipe import close_pool
+    from storage.pipe import close_blob_client
 
+    await close_blob_client()
     await close_pool()
 
 

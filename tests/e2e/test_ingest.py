@@ -4,6 +4,7 @@ Object state is checked with an independent boto3 client rather than through the
 code under test.
 """
 
+import asyncio
 import hashlib
 from typing import Any
 from uuid import uuid4
@@ -42,6 +43,26 @@ async def test_object_key_carries_user_session_and_sequence(account: Account) ->
     assert segment.object_key.startswith(session_prefix(account.user.id, session.id))
     assert segment.object_key.endswith(".wav")
     assert f"{segment.sequence:06d}" in segment.object_key
+
+
+async def test_concurrent_ingests_take_distinct_sequences(
+    account: Account, s3: Any
+) -> None:
+    """No lock spans the upload; the unique constraint arbitrates the race.
+
+    Losers retry with a fresh sequence read and delete their provisional
+    object, so the store ends up with exactly one object per row.
+    """
+    session = await make_session(account)
+    payloads = [wav_bytes(seconds=0.05, freq=300 + 10 * i) for i in range(4)]
+
+    segments = await asyncio.gather(
+        *(ingest(session.id, payload) for payload in payloads)
+    )
+
+    assert sorted(segment.sequence for segment in segments) == [0, 1, 2, 3]
+    stored = keys_under(s3, session_prefix(account.user.id, session.id))
+    assert sorted(stored) == sorted(segment.object_key for segment in segments)
 
 
 async def test_failed_ingest_leaves_no_orphan_object(account: Account, s3: Any) -> None:

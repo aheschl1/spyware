@@ -76,9 +76,12 @@ Idempotency is the **dedup key**: every discovered item carries one (e.g.
 `session-stats:session:{id}`), and the partial unique index on
 `(pipeline, dedup_key)` spans *all* statuses - once a key's job exists
 (queued, running, succeeded, or dead), re-enqueueing it is a no-op forever.
-The discovery query should also exclude already-enqueued work (`NOT EXISTS`
-against `processing_jobs`) so repeated passes stay cheap; the index is the
-correctness backstop either way.
+The discovery query should also exclude already-enqueued work so repeated
+passes stay cheap — anti-join on indexed columns (`NOT EXISTS` over
+`(pipeline, session_id)`, both sides indexed), never by reconstructing the
+dedup key per row, which no index can serve; the unique index is the
+correctness backstop either way. Discovered batches are enqueued in one
+statement (`pipe.jobs.enqueue_many`), not a transaction per item.
 
 Pipelines fed only by chaining (or manual enqueue) return `()`.
 

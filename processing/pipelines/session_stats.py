@@ -17,9 +17,6 @@ from processing.base import Pipeline
 from storage.keys import pipeline_key
 from storage.pipe import BlobPipe
 
-# Far past any real session (one chunk per second for a day is 86 400).
-_MAX_SEGMENTS = 1_000_000
-
 
 class SessionStatsPipeline(Pipeline):
     name = "session-stats"
@@ -42,8 +39,8 @@ class SessionStatsPipeline(Pipeline):
         assert job.session_id is not None  # every job here comes from discover()
         async with DatabasePipe() as pipe:
             session = await pipe.sessions.get(job.session_id)
-            segments = await pipe.segments.list_for_session(
-                job.session_id, limit=_MAX_SEGMENTS
+            aggregates = await SessionStatsQueries(pipe.connection).aggregate_segments(
+                job.session_id
             )
         if session is None:
             return {"missing": True}
@@ -52,12 +49,12 @@ class SessionStatsPipeline(Pipeline):
             raise RuntimeError("boom requested by session metadata")
 
         stats = {
-            "segments": len(segments),
-            "total_bytes": sum(segment.byte_size for segment in segments),
-            "duration_ms": sum(segment.duration_ms or 0 for segment in segments),
+            "segments": aggregates.segments,
+            "total_bytes": aggregates.total_bytes,
+            "duration_ms": aggregates.duration_ms,
         }
         info = None
-        if segments:
+        if aggregates.segments:
             key = pipeline_key(self.name, session.id, "stats.json")
             async with BlobPipe() as blobs:
                 info = await blobs.put(
@@ -71,7 +68,7 @@ class SessionStatsPipeline(Pipeline):
                     session_id=session.id,
                     bucket=info.bucket if info else None,
                     object_key=info.key if info else None,
-                    links={"segments": [str(segment.id) for segment in segments]},
+                    links={"segments": [str(id) for id in aggregates.segment_ids]},
                     metadata=stats,
                 )
             )

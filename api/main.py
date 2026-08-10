@@ -25,6 +25,7 @@ from api.schema.stream_export import build_schema
 from database.exceptions import DatabaseError, NotFoundError
 from database.pipe import DatabasePipe, close_pool
 from storage.base import BlobNotFoundError
+from storage.pipe import close_blob_client
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     sweeper.cancel()
     with suppress(asyncio.CancelledError):
         await sweeper
+    await close_blob_client()
     await close_pool()
 
 

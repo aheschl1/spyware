@@ -4,9 +4,11 @@ Generic queue mechanics only — nothing here knows what any pipeline does.
 Pipeline-specific discovery queries live in ``database/repos/pipelines/``.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from database.repos.base import BaseRepo
@@ -55,6 +57,55 @@ class JobsRepo(BaseRepo):
         if job is not None:
             await self._execute("SELECT pg_notify(%s, %s)", (NOTIFY_CHANNEL, data.pipeline))
         return job
+
+    async def enqueue_many(self, items: Sequence[JobCreate]) -> int:
+        """Insert a batch in one statement, skipping already-taken dedup keys.
+
+        The discovery path: one round trip for a whole pass instead of a
+        transaction per item, and one NOTIFY per pipeline that actually gained
+        a row. Duplicate keys *within* the batch are dropped up front — ON
+        CONFLICT refuses to skip the same row twice in one statement. Returns
+        the number inserted.
+        """
+        seen: set[tuple[str, str]] = set()
+        unique: list[JobCreate] = []
+        for item in items:
+            if item.dedup_key is not None:
+                key = (item.pipeline, item.dedup_key)
+                if key in seen:
+                    continue
+                seen.add(key)
+            unique.append(item)
+        if not unique:
+            return 0
+
+        params: list = []
+        for item in unique:
+            params += [
+                item.pipeline,
+                item.session_id,
+                item.priority,
+                Jsonb(item.payload),
+                item.dedup_key,
+                item.max_attempts,
+            ]
+        values = ", ".join(["(%s, %s, %s, %s, %s, COALESCE(%s, 5))"] * len(unique))
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                    INSERT INTO processing_jobs
+                        (pipeline, session_id, priority, payload, dedup_key, max_attempts)
+                    VALUES {values}
+                    ON CONFLICT (pipeline, dedup_key) WHERE dedup_key IS NOT NULL
+                    DO NOTHING
+                    RETURNING pipeline
+                """,
+                params,
+            )
+            rows = await cur.fetchall()
+        for pipeline in sorted({row["pipeline"] for row in rows}):
+            await self._execute("SELECT pg_notify(%s, %s)", (NOTIFY_CHANNEL, pipeline))
+        return len(rows)
 
     async def claim(self, pipeline: str, worker_id: str) -> Job | None:
         """Take the next runnable job for one pipeline, or None when idle.

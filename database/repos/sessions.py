@@ -4,6 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from psycopg import errors
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from database.exceptions import NotFoundError
@@ -68,6 +69,36 @@ class SessionsRepo(BaseRepo):
             "UPDATE recording_sessions SET updated_at = now() WHERE id = %s AND ended_at IS NULL",
             (session_id,),
         ) > 0
+
+    async def touch_if_stale(
+        self, session_id: UUID, min_interval_seconds: float = 60.0
+    ) -> bool:
+        """Like :meth:`touch`, but writing at most once per interval.
+
+        The per-chunk heartbeat of the streaming path: an unconditional touch
+        is a row lock + WAL write per chunk on one hot row, yet the sweeper
+        only needs freshness within its stale window. Here the common case is
+        one plain read; the UPDATE fires only once ``updated_at`` has actually
+        aged. Returns whether the session is open — the read decides that, so
+        a session ended between this check and the caller's next write can
+        still take one last chunk (the same width of race the sweeper's cutoff
+        already tolerates).
+        """
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                    SELECT ended_at IS NULL AS open,
+                           updated_at < now() - make_interval(secs => %s) AS stale
+                    FROM recording_sessions WHERE id = %s
+                """,
+                (min_interval_seconds, session_id),
+            )
+            row = await cur.fetchone()
+        if row is None or not row["open"]:
+            return False
+        if row["stale"]:
+            await self.touch(session_id)
+        return True
 
     async def end_stale(self, older_than_seconds: float) -> int:
         """End every open session with no activity since the cutoff.

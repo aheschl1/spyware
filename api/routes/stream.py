@@ -152,7 +152,9 @@ class _AckTracker:
                 through=self.through,
                 count=self._count,
                 bytes=self._bytes,
-                duplicates=tuple(self._duplicates),
+                # Sorted: stores complete in arbitrary order, and the set is
+                # what matters — keep the wire deterministic anyway.
+                duplicates=tuple(sorted(self._duplicates)),
             )
         )
         self._count = 0
@@ -341,6 +343,62 @@ async def _await_hello(
     return frame, None
 
 
+class _ChunkPool:
+    """Runs chunk stores concurrently, bounded by a semaphore.
+
+    ``submit`` blocks on the semaphore when every slot is busy, so the receive
+    loop stops reading frames and backpressure lands in TCP instead of an
+    unbounded task pile. Completion order does not matter: the ack tracker's
+    contiguity set already handles gaps, and the ``(session, sequence)``
+    uniqueness arbitrates a retransmit racing its original.
+
+    ``_ingest_chunk`` reports every recoverable problem itself, so a task ends
+    in one of three ways: clean, session-fatal (recorded in ``fatal``), or an
+    unexpected crash (recorded in ``failure`` for the pump to re-raise).
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._slots = asyncio.Semaphore(limit)
+        self._tasks: set[asyncio.Task] = set()
+        self.fatal: Exception | None = None  # SessionEndedError / NotFoundError
+        self.failure: BaseException | None = None
+
+    @property
+    def settled(self) -> bool:
+        return self.fatal is not None or self.failure is not None
+
+    async def submit(self, store) -> None:
+        """``store`` is a zero-argument callable returning the coroutine, so a
+        cancellation while waiting for a slot leaves nothing half-created."""
+        await self._slots.acquire()
+        task = asyncio.create_task(self._run(store))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _run(self, store) -> None:
+        try:
+            await store()
+        except (SessionEndedError, NotFoundError) as exc:
+            if self.fatal is None:
+                self.fatal = exc
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:
+            if self.failure is None:
+                self.failure = exc
+        finally:
+            self._slots.release()
+
+    async def drain(self) -> None:
+        """Wait for every in-flight store to finish (outcomes land in flags)."""
+        while self._tasks:
+            await asyncio.gather(*tuple(self._tasks), return_exceptions=True)
+
+    def cancel_all(self) -> None:
+        for task in self._tasks:
+            task.cancel()
+
+
 async def _pump(
     websocket: WebSocket,
     outbox: _Outbox,
@@ -351,48 +409,97 @@ async def _pump(
     settings: ApiSettings,
 ) -> tuple[str | None, int | None]:
     """The STREAMING state. Returns (bye reason, close code) for the teardown."""
+    pool = _ChunkPool(settings.stream_ingest_concurrency)
+    try:
+        return await _pump_frames(websocket, outbox, tracker, blobs, session, hello, settings, pool)
+    except asyncio.CancelledError:
+        pool.cancel_all()
+        raise
+    finally:
+        # Every return path drained already; this covers the exception paths.
+        await pool.drain()
+
+
+async def _settle(
+    pool: _ChunkPool, outbox: _Outbox, tracker: _AckTracker
+) -> tuple[str | None, int | None] | None:
+    """Drain the pool and translate what its tasks reported.
+
+    None means all clear; a tuple is the pump's session-fatal return. An
+    unexpected task crash re-raises here, into the handler's internal-error
+    path — exactly where it landed when stores ran inline.
+    """
+    await pool.drain()
+    if pool.failure is not None:
+        raise pool.failure
+    if pool.fatal is not None:
+        # Ended by REST or the sweeper — or deleted outright — since the
+        # handshake; either way this stream is over.
+        tracker.flush()
+        outbox.publish(
+            StreamError(scope="session", code="session_ended", detail="the session has ended")
+        )
+        return None, CLOSE_SESSION_ENDED
+    return None
+
+
+async def _pump_frames(
+    websocket: WebSocket,
+    outbox: _Outbox,
+    tracker: _AckTracker,
+    blobs: S3BlobStore,
+    session: RecordingSession,
+    hello: Hello,
+    settings: ApiSettings,
+    pool: _ChunkPool,
+) -> tuple[str | None, int | None]:
     while True:
+        if pool.settled and (outcome := await _settle(pool, outbox, tracker)) is not None:
+            return outcome
+
         try:
             message = await asyncio.wait_for(
                 websocket.receive(), timeout=settings.stream_idle_timeout_seconds
             )
         except TimeoutError:
+            if (outcome := await _settle(pool, outbox, tracker)) is not None:
+                return outcome
             tracker.flush()
             return "idle", 1000
 
         if message["type"] == "websocket.disconnect":
-            # The session stays open for a reconnect; the sweeper ends it if
-            # none arrives within the stale window.
+            # In-flight stores finish and count; the session stays open for a
+            # reconnect, and the sweeper ends it if none arrives in time.
+            await pool.drain()
+            if pool.failure is not None:
+                raise pool.failure
             return None, None
 
         data = message.get("bytes")
         if data is not None:
-            try:
-                await _ingest_chunk(outbox, tracker, blobs, session, hello, settings, data)
-            except (SessionEndedError, NotFoundError):
-                # Ended by REST or the sweeper — or deleted outright — since
-                # the handshake; either way this stream is over.
-                tracker.flush()
-                outbox.publish(
-                    StreamError(
-                        scope="session", code="session_ended", detail="the session has ended"
-                    )
+            await pool.submit(
+                lambda data=data: _ingest_chunk(
+                    outbox, tracker, blobs, session, hello, settings, data
                 )
-                return None, CLOSE_SESSION_ENDED
+            )
             continue
 
         try:
             frame = parse_client_frame(message.get("text") or "")
         except FrameError as exc:
+            await pool.drain()
             outbox.publish(
                 StreamError(scope="session", code="protocol_error", detail=str(exc))
             )
             return None, CLOSE_PROTOCOL_ERROR
         if isinstance(frame, Finish):
+            if (outcome := await _settle(pool, outbox, tracker)) is not None:
+                return outcome
             tracker.flush()
             async with DatabasePipe() as pipe:
                 await pipe.sessions.end(session.id, frame.ended_at)
             return "finished", 1000
+        await pool.drain()
         outbox.publish(
             StreamError(scope="session", code="protocol_error", detail="unexpected hello")
         )

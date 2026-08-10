@@ -2,7 +2,7 @@
 
 from storage.base import BlobInfo, BlobNotFoundError, BlobStore
 from storage.config import StorageSettings, get_settings
-from storage.pipe import BlobPipe
+from storage.pipe import BlobPipe, close_blob_client, get_blob_client
 from storage.s3 import S3BlobStore
 
 __all__ = [
@@ -12,5 +12,7 @@ __all__ = [
     "BlobStore",
     "S3BlobStore",
     "StorageSettings",
+    "close_blob_client",
+    "get_blob_client",
     "get_settings",
 ]

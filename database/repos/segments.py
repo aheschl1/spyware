@@ -26,16 +26,19 @@ COLUMNS = (
 
 class SegmentsRepo(BaseRepo):
     async def next_sequence(self, session_id: UUID) -> int:
-        """Reserve the next sequence number within a session.
+        """The next sequence number in a session, as of this snapshot.
 
-        Locks the parent row for the rest of the transaction; without it two
-        concurrent ingests read the same MAX(sequence) and one violates the
-        (session_id, sequence) unique constraint.
+        A plain read, deliberately not a reservation: locking the session row
+        here would hold it for the rest of the caller's transaction — which
+        for an ingest spans a blob upload. Two concurrent ingests may read the
+        same number; the (session_id, sequence) unique constraint arbitrates,
+        and the loser retries with a fresh read
+        (:func:`services.audio.ingest_segment`).
         """
-        locked = await self._fetch_value(
-            "SELECT id FROM recording_sessions WHERE id = %s FOR UPDATE", (session_id,)
+        exists = await self._fetch_value(
+            "SELECT 1 FROM recording_sessions WHERE id = %s", (session_id,)
         )
-        if locked is None:
+        if exists is None:
             raise NotFoundError("recording session", session_id)
         return await self._fetch_value(
             "SELECT COALESCE(MAX(sequence) + 1, 0) FROM audio_segments WHERE session_id = %s",

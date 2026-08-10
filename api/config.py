@@ -26,10 +26,16 @@ class ApiSettings(BaseSettings):
     stream_ack_window_seconds: float = 2.0
     stream_hello_timeout_seconds: float = 10.0
     stream_idle_timeout_seconds: float = 300.0
+    # Chunk stores (blob PUT + row insert) in flight at once per connection.
+    # The protocol's cumulative acks are gap-aware, so out-of-order completion
+    # is already handled; 1 restores strictly sequential storage.
+    stream_ingest_concurrency: int = 4
 
     # An open session with no activity for this long is ended by the sweeper.
     # Keep it at or above the idle timeout, or a quiet-but-connected client's
-    # session can be swept out from under it.
+    # session can be swept out from under it. Chunk heartbeats are throttled to
+    # roughly one write a minute (sessions.touch_if_stale), so keep this well
+    # above that interval too.
     session_stale_seconds: float = 300.0
     session_sweep_interval_seconds: float = 60.0
 

@@ -25,6 +25,7 @@ from database.schema.jobs import Job
 from processing import registry
 from processing.base import Pipeline, backoff
 from processing.config import ProcessingSettings, get_settings
+from storage.pipe import close_blob_client
 
 logger = logging.getLogger(__name__)
 
@@ -73,17 +74,23 @@ async def _worker_main(name: str) -> None:
         if listener is not None:
             with suppress(Exception):
                 await listener.close()
+        await close_blob_client()
         await close_pool()
         logger.info("worker %s stopped", name)
 
 
 async def _discover(pipeline: Pipeline, settings: ProcessingSettings) -> None:
     items = await pipeline.discover(settings.discovery_batch)
-    for item in items:
-        if item.max_attempts is None:
-            item = item.model_copy(update={"max_attempts": settings.max_attempts})
-        async with DatabasePipe() as pipe:
-            await pipe.jobs.enqueue(item)  # None (deduped) is fine
+    if not items:
+        return
+    stamped = [
+        item
+        if item.max_attempts is not None
+        else item.model_copy(update={"max_attempts": settings.max_attempts})
+        for item in items
+    ]
+    async with DatabasePipe() as pipe:
+        await pipe.jobs.enqueue_many(stamped)  # deduped rows just don't insert
 
 
 async def _drain(
