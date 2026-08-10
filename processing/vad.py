@@ -110,7 +110,13 @@ def spans_from_scores(
     Order matters: merge close spans first (stuttery speech becomes one span
     *before* the minimum-length filter can drop its pieces), then drop the
     too-short, then pad and re-merge any overlap padding created, then split
-    anything longer than ``max_span_ms`` so a downstream request stays bounded.
+    anything longer than ``max_span_ms``.
+
+    The cap exists because the transcription model has a bounded input window
+    (Canary/Whisper-family models are trained on clips of at most ~40s; longer
+    input degrades or truncates), so continuous speech must be cut somewhere.
+    Forced cuts land on the quietest frame in the last quarter of the window
+    rather than at the hard tick — a lull instead of mid-word.
     """
     raw: list[tuple[int, int, float, int]] = []  # start, end, prob sum, frames
     current: tuple[int, float, int] | None = None  # start frame, prob sum, frames
@@ -149,7 +155,21 @@ def spans_from_scores(
     for start, end, prob, frames in padded:
         confidence = round(prob / frames, 3) if frames else 0.0
         at = start
-        while at < end:
-            spans.append(SpeechSpan(at, min(at + max_span_ms, end), confidence))
-            at += max_span_ms
+        while end - at > max_span_ms:
+            cut = _quietest_cut(at, scores, frame_ms, max_span_ms)
+            spans.append(SpeechSpan(at, cut, confidence))
+            at = cut
+        spans.append(SpeechSpan(at, end, confidence))
     return spans
+
+
+def _quietest_cut(at: int, scores: list[float], frame_ms: int, max_span_ms: int) -> int:
+    """Where to cut a span that must be split: the lowest-probability frame in
+    the last quarter of the allowed window, falling back to the hard cap when
+    the window lies beyond the scored audio (end-of-session padding)."""
+    lo = (at + max_span_ms * 3 // 4) // frame_ms
+    hi = min((at + max_span_ms) // frame_ms, len(scores))
+    if lo >= hi:
+        return at + max_span_ms
+    quietest = min(range(lo, hi), key=scores.__getitem__)
+    return quietest * frame_ms

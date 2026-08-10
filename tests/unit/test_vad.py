@@ -55,12 +55,33 @@ def test_padding_clamps_to_the_session() -> None:
     assert span.end_ms == 1600
 
 
-def test_long_spans_split_at_the_cap() -> None:
+def test_long_spans_split_within_the_cap() -> None:
     frames = _frames(70_000)
     spans = spans_from_scores([1.0] * frames, **_DEFAULTS)
-    assert [span.end_ms - span.start_ms for span in spans][:2] == [30_000, 30_000]
+    assert len(spans) > 1
     assert spans[-1].end_ms == frames * FRAME_MS + 200  # padded tail
+    # Every forced piece stays inside the model window, and cuts only happen
+    # in the last quarter of it (uniform scores tie -> earliest frame wins).
     assert all(span.end_ms - span.start_ms <= 30_000 for span in spans)
+    # (frame-floored: a cut can land one frame short of the exact 3/4 mark)
+    assert all(
+        span.end_ms - span.start_ms >= 30_000 * 3 // 4 - FRAME_MS for span in spans[:-1]
+    )
+    # Contiguous: nothing lost at the cuts.
+    assert all(a.end_ms == b.start_ms for a, b in zip(spans, spans[1:]))
+
+
+def test_forced_cut_lands_on_the_quietest_frame() -> None:
+    # 40s of speech with one soft-but-still-speech frame at 25.6s — inside the
+    # cut-search window [22.5s, 30s). The split must choose it over the tick.
+    frames = _frames(40_000)
+    dip_frame = 25_600 // FRAME_MS
+    scores = [1.0] * frames
+    scores[dip_frame] = 0.6  # above threshold: still one continuous span
+    spans = spans_from_scores(scores, **_DEFAULTS)
+    assert len(spans) == 2
+    assert spans[0].end_ms == dip_frame * FRAME_MS
+    assert spans[1].start_ms == spans[0].end_ms
 
 
 def test_energy_backend_scores_tone_high_and_silence_low() -> None:

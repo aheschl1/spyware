@@ -36,8 +36,14 @@ class ProcessingSettings(BaseSettings):
     vad_backend: str = "silero"  # or "energy": deterministic RMS threshold
     vad_threshold: float = 0.5
     vad_min_speech_ms: int = 250
-    vad_merge_gap_ms: int = 1000
+    # Wide enough that ordinary conversational pauses don't split a span;
+    # only a real lull does. Long pauses SHOULD split: silence wastes GPU
+    # time and invites ASR hallucination.
+    vad_merge_gap_ms: int = 2500
     vad_pad_ms: int = 200
+    # The transcription model's input window: Canary/Whisper-family models
+    # are trained on <=~40s clips, so spans must stay inside that envelope.
+    # Forced cuts land on the quietest frame near the cap (processing/vad.py).
     vad_max_span_ms: int = 30_000
     vad_energy_threshold: int = 500  # int16 RMS amplitude, energy backend only
 
