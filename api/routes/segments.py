@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Response, status
 from fastapi.responses import StreamingResponse
 
 from api.deps import CurrentUser, OwnedSegment, Paging, Pipe
-from api.ranges import RangeNotSatisfiable, parse_range
+from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.common import Page
 from api.schema.segments import SegmentRead
 from database.schema.segments import AudioSegment
@@ -68,14 +68,6 @@ def _etag(segment: AudioSegment) -> str:
     return f'"{segment.checksum_hex or f"{segment.id}-{segment.byte_size}"}"'
 
 
-def _matches(header: str | None, etag: str) -> bool:
-    if not header:
-        return False
-    candidates = [tag.strip() for tag in header.split(",")]
-    # W/ prefixes are stripped: If-None-Match uses the weak comparison.
-    return "*" in candidates or any(tag.removeprefix("W/") == etag for tag in candidates)
-
-
 @router.get(
     "/{segment_id}/audio",
     summary="Download a segment's audio",
@@ -104,14 +96,14 @@ async def get_segment_audio(segment: OwnedSegment, request: Request) -> Response
         "Content-Disposition": f'inline; filename="{filename}"',
     }
 
-    if _matches(request.headers.get("if-none-match"), etag):
+    if etag_matches(request.headers.get("if-none-match"), etag):
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
     # A stale If-Range means the client must take the whole object, not a slice
     # it would splice onto an older copy.
     range_header = request.headers.get("range")
     if_range = request.headers.get("if-range")
-    if if_range and not _matches(if_range, etag):
+    if if_range and not etag_matches(if_range, etag):
         range_header = None
 
     try:

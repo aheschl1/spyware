@@ -1,8 +1,19 @@
-"""HTTP `Range` header parsing (RFC 9110 §14)."""
+"""HTTP `Range` header parsing (RFC 9110 §14) and ETag matching."""
 
 from dataclasses import dataclass
 
 UNIT = "bytes"
+
+
+def etag_matches(header: str | None, etag: str) -> bool:
+    """Does an ``If-None-Match`` / ``If-Range`` header value match this ETag?
+
+    W/ prefixes are stripped: the weak comparison, which conditional GETs use.
+    """
+    if not header:
+        return False
+    candidates = [tag.strip() for tag in header.split(",")]
+    return "*" in candidates or any(tag.removeprefix("W/") == etag for tag in candidates)
 
 
 class RangeNotSatisfiable(Exception):

@@ -84,3 +84,105 @@ async def test_unknown_session_is_404(client: httpx.AsyncClient, account: Accoun
 async def test_non_uuid_path_is_422(client: httpx.AsyncClient, account: Account) -> None:
     response = await client.get("/v1/sessions/not-a-uuid", headers=account.headers)
     assert response.status_code == 422
+
+
+# -- stitched session audio ---------------------------------------------------
+
+
+def _expected_stitch(payloads: list[bytes]) -> bytes:
+    """Build the stitched WAV the way the spec describes it, independently."""
+    import struct
+
+    data = b"".join(payload[44:] for payload in payloads)
+    header = bytearray(payloads[0][:44])
+    header[4:8] = struct.pack("<I", 36 + len(data))
+    header[40:44] = struct.pack("<I", len(data))
+    return bytes(header) + data
+
+
+async def test_session_audio_stitches_every_segment(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    from tests.e2e.conftest import ingest
+    from tests.wav import wav_bytes
+
+    session = await make_session(account)
+    payloads = [wav_bytes(seconds=0.05, freq=300 + 50 * i) for i in range(3)]
+    for payload in payloads:
+        await ingest(session.id, payload)
+    expected = _expected_stitch(payloads)
+
+    response = await client.get(f"/v1/sessions/{session.id}/audio", headers=account.headers)
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "audio/wav"
+    assert response.headers["content-length"] == str(len(expected))
+    assert response.content == expected
+
+    # Conditional GET: the ETag covers the exact segment set.
+    etag = response.headers["etag"]
+    cached = await client.get(
+        f"/v1/sessions/{session.id}/audio",
+        headers={**account.headers, "If-None-Match": etag},
+    )
+    assert cached.status_code == 304
+
+    # A new chunk changes the audio, so the validator must change too.
+    await ingest(session.id, wav_bytes(seconds=0.05, freq=999))
+    grown = await client.get(
+        f"/v1/sessions/{session.id}/audio",
+        headers={**account.headers, "If-None-Match": etag},
+    )
+    assert grown.status_code == 200
+    assert grown.headers["etag"] != etag
+
+
+async def test_session_audio_range_spans_segment_boundaries(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    from tests.e2e.conftest import ingest
+    from tests.wav import wav_bytes
+
+    session = await make_session(account)
+    payloads = [wav_bytes(seconds=0.05, freq=300 + 50 * i) for i in range(3)]
+    for payload in payloads:
+        await ingest(session.id, payload)
+    expected = _expected_stitch(payloads)
+
+    # A slice crossing from inside the first segment into the second.
+    start, end = 40, len(payloads[0]) + 100
+    response = await client.get(
+        f"/v1/sessions/{session.id}/audio",
+        headers={**account.headers, "Range": f"bytes={start}-{end}"},
+    )
+    assert response.status_code == 206
+    assert response.content == expected[start : end + 1]
+    assert response.headers["content-range"] == f"bytes {start}-{end}/{len(expected)}"
+
+    past_the_end = await client.get(
+        f"/v1/sessions/{session.id}/audio",
+        headers={**account.headers, "Range": f"bytes={len(expected)}-"},
+    )
+    assert past_the_end.status_code == 416
+
+
+async def test_session_audio_refuses_mixed_content_types(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    from services import audio
+    from tests.e2e.conftest import ingest
+    from tests.wav import wav_bytes
+
+    session = await make_session(account)
+    await ingest(session.id, wav_bytes(seconds=0.05))
+    await audio.ingest_segment(session.id, b"not-wav-bytes", content_type="audio/webm")
+
+    response = await client.get(f"/v1/sessions/{session.id}/audio", headers=account.headers)
+    assert response.status_code == 409
+
+
+async def test_session_audio_404_when_empty(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    session = await make_session(account)
+    response = await client.get(f"/v1/sessions/{session.id}/audio", headers=account.headers)
+    assert response.status_code == 404
