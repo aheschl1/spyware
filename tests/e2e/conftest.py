@@ -28,7 +28,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # collide with real data.
 TEST_BUCKET = "test-audio"
 
-TABLES = "users, recording_sessions, audio_segments, auth_tokens"
+TABLES = (
+    "users, recording_sessions, audio_segments, auth_tokens, "
+    "processing_jobs, pipeline_artifacts"
+)
 
 SERVER_BOOT_TIMEOUT = 30.0
 
@@ -80,15 +83,24 @@ def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, st
         # Effectively parks the server's sweeper so test_stream can drive
         # end_stale deterministically.
         "API_SESSION_SWEEP_INTERVAL_SECONDS": "3600",
+        # Fast worker cadence and tiny retry windows so processing tests
+        # observe discovery, retries, and death within seconds.
+        "PROCESSING_POLL_INTERVAL_SECONDS": "0.2",
+        "PROCESSING_MAX_ATTEMPTS": "2",
+        "PROCESSING_RETRY_BACKOFF_BASE_SECONDS": "0.05",
+        "PROCESSING_RETRY_BACKOFF_CAP_SECONDS": "0.2",
+        "PROCESSING_SHUTDOWN_GRACE_SECONDS": "5",
     }
     os.environ.update(env)
 
     from api.config import get_settings as api_settings
     from database.config import get_settings as db_settings
+    from processing.config import get_settings as processing_settings
     from storage.config import get_settings as storage_settings
 
     api_settings.cache_clear()
     db_settings.cache_clear()
+    processing_settings.cache_clear()
     storage_settings.cache_clear()
     return env
 
@@ -181,6 +193,66 @@ def server(test_env: dict[str, str], migrated: None, s3: Any) -> Iterator[str]:
         process.terminate()
         process.wait(timeout=10)
         log.close()
+
+
+@pytest.fixture(scope="session")
+def worker(test_env: dict[str, str], migrated: None, s3: Any) -> Iterator[None]:
+    """Run the processing supervisor as a real process.
+
+    Readiness has no HTTP endpoint to poll, so it is the per-pipeline
+    ``worker <name> ready`` log lines instead.
+    """
+    from processing.registry import names
+
+    log = open(REPO_ROOT / ".pytest-worker.log", "w+")
+    process = subprocess.Popen(
+        [sys.executable, "-m", "processing", "--log-level", "info"],
+        cwd=REPO_ROOT,
+        env={**os.environ, **test_env},
+        stdout=log,
+        stderr=subprocess.STDOUT,
+    )
+    deadline = time.monotonic() + SERVER_BOOT_TIMEOUT
+    try:
+        while True:
+            if process.poll() is not None:
+                log.seek(0)
+                raise AssertionError(f"worker exited with {process.returncode}:\n{log.read()}")
+            log.seek(0)
+            content = log.read()
+            if all(f"worker {name} ready" in content for name in names()):
+                break
+            if time.monotonic() > deadline:
+                raise AssertionError(
+                    f"worker did not start in {SERVER_BOOT_TIMEOUT}s:\n{content}"
+                )
+            time.sleep(0.2)
+        yield
+    finally:
+        process.terminate()
+        process.wait(timeout=15)
+        log.close()
+
+
+async def wait_for_job(session_id, pipeline: str, status: str, timeout: float = 15.0):
+    """Poll until the session has a `pipeline` job in `status`."""
+    import asyncio
+
+    from database.pipe import DatabasePipe
+
+    jobs: list = []
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        async with DatabasePipe() as pipe:
+            jobs = await pipe.jobs.list_for_session(session_id)
+        for job in jobs:
+            if job.pipeline == pipeline and job.status == status:
+                return job
+        await asyncio.sleep(0.1)
+    raise AssertionError(
+        f"no {pipeline} job reached {status!r} for session {session_id} "
+        f"within {timeout}s; jobs: {[(j.pipeline, j.status) for j in jobs]}"
+    )
 
 
 @pytest_asyncio.fixture(autouse=True)

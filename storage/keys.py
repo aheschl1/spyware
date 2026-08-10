@@ -38,6 +38,19 @@ def user_prefix(user_id: UUID) -> str:
     return f"users/{user_id}/"
 
 
+def pipeline_prefix(pipeline: str) -> str:
+    """A processing pipeline's own blob space, at the bucket root.
+
+    ``users/`` belongs to segment storage, so no pipeline may be named
+    ``users`` (the processing registry enforces this).
+    """
+    return f"{pipeline}/"
+
+
+def pipeline_key(pipeline: str, session_id: UUID, name: str) -> str:
+    return f"{pipeline_prefix(pipeline)}sessions/{session_id}/{name}"
+
+
 def session_prefix(user_id: UUID, session_id: UUID) -> str:
     return f"{user_prefix(user_id)}sessions/{session_id}/"
 

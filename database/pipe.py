@@ -19,6 +19,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from database.config import DatabaseSettings, get_settings
+from database.repos.artifacts import ArtifactsRepo
+from database.repos.jobs import JobsRepo
 from database.repos.segments import SegmentsRepo
 from database.repos.sessions import SessionsRepo
 from database.repos.tokens import TokensRepo
@@ -113,6 +115,14 @@ class DatabasePipe:
     @cached_property
     def segments(self) -> SegmentsRepo:
         return SegmentsRepo(self.connection)
+
+    @cached_property
+    def jobs(self) -> JobsRepo:
+        return JobsRepo(self.connection)
+
+    @cached_property
+    def artifacts(self) -> ArtifactsRepo:
+        return ArtifactsRepo(self.connection)
 
     def _clear_repos(self) -> None:
         """Drop cached repositories so none outlives its connection."""

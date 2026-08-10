@@ -3,11 +3,12 @@ PORT ?= 8000
 
 .DEFAULT_GOAL := help
 
-.PHONY: help api api-lan schema migrate test test-unit test-e2e
+.PHONY: help api api-lan worker schema migrate test test-unit test-e2e
 
 help:
 	@echo "make api        serve the API on $(HOST):$(PORT) (override HOST=/PORT=)"
 	@echo "make api-lan    serve on 0.0.0.0 for devices on the LAN (glasses/miniapp dev)"
+	@echo "make worker     run the processing pipelines (docs/processing-pipelines.md)"
 	@echo "make schema     print the streaming frame schema (served at /stream-schema.json)"
 	@echo "make migrate    apply alembic migrations"
 	@echo "make test       run the whole test suite (e2e needs Docker)"
@@ -19,6 +20,10 @@ api:
 
 api-lan:
 	$(MAKE) api HOST=0.0.0.0
+
+# One supervisor, one child process per registered pipeline.
+worker:
+	uv run python -m processing
 
 # The running server serves this same document at /stream-schema.json, which
 # is what client codegen fetches (e.g. `bun run gen` in the computa miniapp);
