@@ -9,9 +9,11 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api import session_audio, stitch
+from api import session_audio
+from services import stitch
 from api.deps import CurrentUser, OwnedSession, Paging, Pipe
 from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
+from api.schema.artifacts import ArtifactRead
 from api.schema.common import ErrorResponse, Page
 from api.schema.segments import SegmentRead
 from api.schema.sessions import SessionCreateRequest, SessionRead
@@ -72,6 +74,37 @@ async def list_session_segments(
         session.id, limit=paging.probe_limit, offset=paging.offset
     )
     return Page.build(rows, paging, SegmentRead.from_model)
+
+
+@router.get("/{session_id}/artifacts", summary="List a session's pipeline artifacts")
+async def list_session_artifacts(
+    session: OwnedSession,
+    pipe: Pipe,
+    paging: Paging,
+    pipeline: str | None = Query(None, description="Only artifacts of this pipeline."),
+    kind: str | None = Query(None, description="Only artifacts of this kind."),
+    from_ms: int | None = Query(
+        None, ge=0, description="Only span artifacts overlapping at/after this time."
+    ),
+    to_ms: int | None = Query(
+        None, ge=0, description="Only span artifacts overlapping before this time."
+    ),
+) -> Page[ArtifactRead]:
+    """What the processing tiers attached to this session, in timeline order.
+
+    Whole-session artifacts sort first; a `from_ms`/`to_ms` window restricts
+    to span artifacts overlapping it.
+    """
+    rows = await pipe.artifacts.list_for_session(
+        session.id,
+        pipeline=pipeline,
+        kind=kind,
+        from_ms=from_ms,
+        to_ms=to_ms,
+        limit=paging.probe_limit,
+        offset=paging.offset,
+    )
+    return Page.build(rows, paging, ArtifactRead.from_model)
 
 
 async def _stream_stitched(

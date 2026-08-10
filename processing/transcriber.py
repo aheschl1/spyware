@@ -1,0 +1,95 @@
+"""The transcription-service client seam.
+
+The transcribe tier depends on this interface, not on any particular model or
+container. Two wire protocols cover every practical backend:
+
+- ``openai`` — the standard transcriptions API (``POST {base}/audio/
+  transcriptions``, multipart), spoken by our own asr_canary container, by
+  speaches/faster-whisper, and by hosted providers. This is the default.
+- ``cog`` — Replicate cog images run locally (``POST {base}/predictions``,
+  base64 JSON), for out-of-the-box community containers.
+
+Swapping backends is environment-only (``PROCESSING_TRANSCRIBER_*``).
+"""
+
+import base64
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+from processing.config import ProcessingSettings
+
+
+class TranscriberError(Exception):
+    """The service failed or answered something unusable. Retryable."""
+
+
+@dataclass(frozen=True, slots=True)
+class Transcription:
+    text: str
+    raw: dict[str, Any]  # the service's full response, persisted verbatim
+
+
+class Transcriber:
+    def __init__(self, settings: ProcessingSettings) -> None:
+        self._base_url = settings.transcriber_base_url.rstrip("/")
+        self._model = settings.transcriber_model
+        self._protocol = settings.transcriber_protocol
+        if self._protocol not in ("openai", "cog"):
+            raise ValueError(f"unknown transcriber protocol {self._protocol!r}")
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.transcriber_timeout_seconds, connect=10.0)
+        )
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def transcribe(self, wav: bytes, *, filename: str = "clip.wav") -> Transcription:
+        try:
+            if self._protocol == "openai":
+                return await self._transcribe_openai(wav, filename)
+            return await self._transcribe_cog(wav)
+        except httpx.HTTPError as exc:
+            raise TranscriberError(f"transcriber unreachable: {exc}") from exc
+
+    async def _transcribe_openai(self, wav: bytes, filename: str) -> Transcription:
+        response = await self._client.post(
+            f"{self._base_url}/audio/transcriptions",
+            files={"file": (filename, wav, "audio/wav")},
+            data={"model": self._model, "response_format": "json"},
+        )
+        body = self._json_or_raise(response)
+        text = body.get("text")
+        if not isinstance(text, str):
+            raise TranscriberError(f"no text in transcriber response: {body!r}")
+        return Transcription(text=text.strip(), raw=body)
+
+    async def _transcribe_cog(self, wav: bytes) -> Transcription:
+        audio = "data:audio/wav;base64," + base64.b64encode(wav).decode()
+        response = await self._client.post(
+            f"{self._base_url}/predictions", json={"input": {"audio": audio}}
+        )
+        body = self._json_or_raise(response)
+        output = body.get("output")
+        # Cog wrappers differ: a bare string, or an object with a text field.
+        if isinstance(output, str):
+            text = output
+        elif isinstance(output, dict) and isinstance(output.get("text"), str):
+            text = output["text"]
+        else:
+            raise TranscriberError(f"no text in cog response: {body!r}")
+        return Transcription(text=text.strip(), raw=body)
+
+    def _json_or_raise(self, response: httpx.Response) -> dict[str, Any]:
+        if response.status_code >= 400:
+            raise TranscriberError(
+                f"transcriber answered {response.status_code}: {response.text[:500]}"
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise TranscriberError(f"non-JSON transcriber response: {exc}") from exc
+        if not isinstance(body, dict):
+            raise TranscriberError(f"unexpected transcriber response shape: {body!r}")
+        return body

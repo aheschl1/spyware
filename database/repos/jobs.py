@@ -19,8 +19,8 @@ from database.schema.jobs import Job, JobCreate
 NOTIFY_CHANNEL = "processing_jobs"
 
 COLUMNS = (
-    "id, pipeline, session_id, priority, status, attempts, max_attempts, run_at, "
-    "payload, result, error, dedup_key, claimed_at, claimed_by, finished_at, "
+    "id, pipeline, session_id, artifact_id, priority, status, attempts, max_attempts, "
+    "run_at, payload, result, error, dedup_key, claimed_at, claimed_by, finished_at, "
     "created_at, updated_at"
 )
 _J_COLUMNS = ", ".join(f"j.{column.strip()}" for column in COLUMNS.split(","))
@@ -39,8 +39,9 @@ class JobsRepo(BaseRepo):
             Job,
             f"""
                 INSERT INTO processing_jobs
-                    (pipeline, session_id, priority, payload, dedup_key, max_attempts)
-                VALUES (%s, %s, %s, %s, %s, COALESCE(%s, 5))
+                    (pipeline, session_id, artifact_id, priority, payload,
+                     dedup_key, max_attempts)
+                VALUES (%s, %s, %s, %s, %s, %s, COALESCE(%s, 5))
                 ON CONFLICT (pipeline, dedup_key) WHERE dedup_key IS NOT NULL
                 DO NOTHING
                 RETURNING {COLUMNS}
@@ -48,6 +49,7 @@ class JobsRepo(BaseRepo):
             (
                 data.pipeline,
                 data.session_id,
+                data.artifact_id,
                 data.priority,
                 Jsonb(data.payload),
                 data.dedup_key,
@@ -84,17 +86,19 @@ class JobsRepo(BaseRepo):
             params += [
                 item.pipeline,
                 item.session_id,
+                item.artifact_id,
                 item.priority,
                 Jsonb(item.payload),
                 item.dedup_key,
                 item.max_attempts,
             ]
-        values = ", ".join(["(%s, %s, %s, %s, %s, COALESCE(%s, 5))"] * len(unique))
+        values = ", ".join(["(%s, %s, %s, %s, %s, %s, COALESCE(%s, 5))"] * len(unique))
         async with self._conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
                     INSERT INTO processing_jobs
-                        (pipeline, session_id, priority, payload, dedup_key, max_attempts)
+                        (pipeline, session_id, artifact_id, priority, payload,
+                         dedup_key, max_attempts)
                     VALUES {values}
                     ON CONFLICT (pipeline, dedup_key) WHERE dedup_key IS NOT NULL
                     DO NOTHING

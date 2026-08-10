@@ -49,7 +49,33 @@ def minio() -> Iterator[MinioContainer]:
 
 
 @pytest.fixture(scope="session")
-def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, str]:
+def stub_transcriber() -> Iterator[str]:
+    """A fake transcription service; yields its base URL (with /v1)."""
+    port = _free_port()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "tests.e2e.stub_transcriber", str(port)], cwd=REPO_ROOT
+    )
+    base_url = f"http://127.0.0.1:{port}/v1"
+    deadline = time.monotonic() + SERVER_BOOT_TIMEOUT
+    try:
+        while True:
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/", timeout=1.0).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            assert time.monotonic() < deadline, "stub transcriber did not start"
+            time.sleep(0.1)
+        yield base_url
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+@pytest.fixture(scope="session")
+def test_env(
+    postgres: PostgresContainer, minio: MinioContainer, stub_transcriber: str
+) -> dict[str, str]:
     """Point every DATABASE_*/STORAGE_* variable at the containers.
 
     Both settings objects are ``@lru_cache``d, so the caches are cleared after
@@ -91,6 +117,12 @@ def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, st
         "PROCESSING_RETRY_BACKOFF_BASE_SECONDS": "0.05",
         "PROCESSING_RETRY_BACKOFF_CAP_SECONDS": "0.2",
         "PROCESSING_SHUTDOWN_GRACE_SECONDS": "5",
+        # Deterministic speech detection (a sine tone IS activity) and the
+        # stub transcription service instead of a GPU container.
+        "PROCESSING_VAD_BACKEND": "energy",
+        "PROCESSING_TRANSCRIBER_BASE_URL": stub_transcriber,
+        "PROCESSING_TRANSCRIBER_PROTOCOL": "openai",
+        "PROCESSING_TRANSCRIBER_TIMEOUT_SECONDS": "10",
     }
     os.environ.update(env)
 

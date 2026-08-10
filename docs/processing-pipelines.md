@@ -92,11 +92,22 @@ Pipelines fed only by chaining (or manual enqueue) return `()`.
   `{name}/sessions/{session_id}/{filename}`. (`users/` is reserved by segment
   storage; the registry rejects that name.)
 - Outputs are recorded in **`pipeline_artifacts`**: `(pipeline, kind,
-  session_id, bucket, object_key, links, metadata)`. `kind`, `links`, and
-  `metadata` mean whatever the pipeline says they mean; `object_key` is NULL
-  for artifacts that are pure rows. Consumers locate upstream outputs with
-  `pipe.artifacts.find(pipeline, kind, session_id)` (newest wins) - this is
-  how post-processing consumes transcription without touching segments.
+  session_id, start_ms, end_ms, bucket, object_key, links, metadata)`.
+  `kind`, `links`, and `metadata` mean whatever the pipeline says they mean;
+  `object_key` is NULL for artifacts that are pure rows. Consumers locate
+  upstream outputs with `pipe.artifacts.find(pipeline, kind, session_id)`
+  (newest wins) or `find_overlapping(session_id, from_ms, to_ms, ...)`.
+- **Artifacts address session time, not segments.** `start_ms`/`end_ms` place
+  an artifact on the session's timeline (ms from session start; both NULL =
+  the whole session). `services/timeline.py` is the bridge: it maps the
+  uniform-WAV stitched stream to that timeline, renders any `[start_ms,
+  end_ms)` as a standalone clip, and walks whole sessions in windows. The
+  segment is an implementation detail of capture — labels, transcripts, and
+  embeddings all attach to *chunks of a session*. The API surfaces them at
+  `GET /v1/sessions/{id}/artifacts` (filters: pipeline, kind, time window).
+- **A job can be scoped to the artifact it consumes** (`processing_jobs.
+  artifact_id`, FK `ON DELETE SET NULL`). That is how tier N+1 discovers tier
+  N's output with an indexed anti-join — see the transcription tiers below.
 - Deleting a session cascades its jobs and artifact rows, but blobs under
   `{name}/sessions/{id}/` are currently orphaned - a future cleanup pass owns
   that.
@@ -123,6 +134,32 @@ templates: the first discovers ended sessions, aggregates every segment, and
 writes a blob + artifact; the second is chained-only and consumes the
 artifact - the transcription → post-processing shape without the
 transcription.
+
+## The transcription tiers
+
+Real tiered processing, consuming through artifacts (no chaining callbacks —
+each tier discovers its own input):
+
+1. **`speech-detect`** (`processing/pipelines/speech_detect.py`) — discovers
+   ended sessions (shared query: `database/repos/pipelines/common.py`), runs
+   the session's PCM through a VAD backend (`processing/vad.py`: `silero` via
+   pysilero-vad on CPU, or the deterministic `energy` threshold the tests
+   use), and records one `speech-span` artifact per merged/padded span plus a
+   `speech-map` summary. Unprocessable sessions (non-WAV, non-16k-mono, no
+   audio) get an empty map with a `skipped` reason — never a dead job.
+2. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
+   `speech-span` artifacts with no transcribe job (anti-join on
+   `processing_jobs.artifact_id`), renders each span from the timeline, sends
+   it to the transcription service, and records a `transcript` artifact on
+   the same span (text preview in metadata, full response as a blob).
+
+The transcription service is behind a seam (`processing/transcriber.py`):
+`PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
+(`openai` protocol — our `asr_canary` container serving nvidia/canary-qwen-2.5b,
+or speaches, or a hosted endpoint) or a Replicate cog wrapper (`cog`).
+Swapping models/backends is env-only. Canary-qwen is English-only and emits
+no word timestamps — timing granularity is the VAD span; a forced-alignment
+tier can refine it later on the same artifact model.
 
 ## Callbacks and chaining
 

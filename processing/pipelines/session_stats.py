@@ -23,7 +23,7 @@ class SessionStatsPipeline(Pipeline):
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         async with DatabasePipe() as pipe:
-            sessions = await SessionStatsQueries(pipe.connection).discover_unprocessed(
+            sessions = await SessionStatsQueries(pipe.connection).ended_sessions_without(
                 self.name, limit
             )
         return tuple(

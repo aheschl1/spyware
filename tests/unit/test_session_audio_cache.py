@@ -2,7 +2,7 @@
 
 from uuid import uuid4
 
-from api import stitch
+from services import stitch
 from api.session_audio import SessionAudio, _RepresentationCache
 from database.schema.segments import SegmentSetFingerprint
 

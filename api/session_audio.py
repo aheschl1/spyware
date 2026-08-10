@@ -17,7 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from uuid import UUID
 
-from api import stitch
+from services import stitch
 from database.pipe import DatabasePipe
 from database.schema.segments import AudioSegment, SegmentSetFingerprint
 from database.schema.sessions import RecordingSession
