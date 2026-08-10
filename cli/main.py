@@ -22,12 +22,12 @@ from database.exceptions import NotFoundError
 from database.schema.sessions import SessionCreate
 from database.schema.users import UserCreate
 from services import audio as audio_service
-from storage import BlobNotFoundError, BlobPipe
+from storage import BlobNotFoundError, BlobPipe, close_blob_client
 from storage import get_settings as get_storage_settings
 
 
 def async_command(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Run an ``async def`` command body, then close the pool."""
+    """Run an ``async def`` command body, then close the pool and blob client."""
 
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -35,6 +35,7 @@ def async_command(fn: Callable[..., Any]) -> Callable[..., Any]:
             try:
                 return await fn(*args, **kwargs)
             finally:
+                await close_blob_client()
                 await close_pool()
 
         try:

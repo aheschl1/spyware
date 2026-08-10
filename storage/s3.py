@@ -113,13 +113,11 @@ class S3BlobStore:
             raise
         return True
 
-    async def delete(self, key: str) -> bool:
-        # S3 reports success for absent keys, so head first to return a truthful
-        # "was it there".
-        if not await self.exists(key):
-            return False
+    async def delete(self, key: str) -> None:
+        # One call, idempotent: S3 reports success for absent keys, and no
+        # caller wants a truthful "was it there" badly enough to pay a HEAD
+        # round trip per delete for it.
         await self._client.delete_object(Bucket=self._bucket, Key=key)
-        return True
 
     async def delete_prefix(self, prefix: str) -> int:
         deleted = 0

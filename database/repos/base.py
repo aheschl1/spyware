@@ -5,13 +5,13 @@ Repositories run raw SQL against the connection handed to them by
 shares that connection's transaction.
 """
 
-from typing import Any, Sequence, TypeVar
+from typing import Any, Mapping, Sequence, TypeVar
 
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row, tuple_row
 from pydantic import BaseModel
 
-Params = Sequence[Any] | None
+Params = Sequence[Any] | Mapping[str, Any] | None
 
 
 class BaseRepo[M: BaseModel]:

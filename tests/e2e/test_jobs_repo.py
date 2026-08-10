@@ -141,6 +141,40 @@ async def test_enqueue_notifies_on_commit(clean_state) -> None:
         await listener.close()
 
 
+async def test_enqueue_many_dedups_and_notifies_once_per_pipeline(clean_state) -> None:
+    async with DatabasePipe() as pipe:
+        assert await pipe.jobs.enqueue(JobCreate(pipeline="p", dedup_key="taken")) is not None
+
+    listener = await AsyncConnection.connect(db_settings().conninfo, autocommit=True)
+    try:
+        await listener.execute(f"LISTEN {NOTIFY_CHANNEL}")
+        async with DatabasePipe() as pipe:
+            inserted = await pipe.jobs.enqueue_many(
+                [
+                    JobCreate(pipeline="p", dedup_key="taken"),  # already in the table
+                    JobCreate(pipeline="p", dedup_key="new"),
+                    JobCreate(pipeline="p", dedup_key="new"),  # duplicate within the batch
+                    JobCreate(pipeline="q", dedup_key="new"),  # other pipeline: distinct
+                    JobCreate(pipeline="q"),  # keyless, never deduped
+                ]
+            )
+        assert inserted == 3
+
+        payloads = [
+            notify.payload
+            async for notify in listener.notifies(timeout=5.0, stop_after=2)
+        ]
+        assert sorted(payloads) == ["p", "q"]
+    finally:
+        await listener.close()
+
+    async with DatabasePipe() as pipe:
+        assert await pipe.jobs.enqueue_many([JobCreate(pipeline="p", dedup_key="new")]) == 0
+        assert await pipe.jobs.enqueue_many([]) == 0
+        assert await pipe.jobs.count_by_status("p") == {"queued": 2}
+        assert await pipe.jobs.count_by_status("q") == {"queued": 2}
+
+
 async def test_artifacts_crud_and_find(clean_state) -> None:
     account = await make_account()
     session = await make_session(account)

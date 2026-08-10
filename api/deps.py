@@ -43,17 +43,15 @@ Pipe = Annotated[DatabasePipe, Depends(get_pipe)]
 async def authenticate_token(pipe: DatabasePipe, token: str | None) -> User | None:
     """Resolve a bearer token to its owner; None when missing or invalid.
 
-    ``resolve_user`` rejects unknown, revoked and expired tokens and inactive
-    users; ``touch_last_used`` records the use as a separate, throttled write so
-    its row lock is not held for the caller's transaction. Shared with the
-    websocket upgrade check, which cannot use ``HTTPBearer``/``HTTPException``.
+    ``tokens.authenticate`` rejects unknown, revoked and expired tokens and
+    inactive users, and stamps ``last_used_at`` in the same statement — the
+    stamp is throttled, so the common case is one read-only round trip. Shared
+    with the websocket upgrade check, which cannot use
+    ``HTTPBearer``/``HTTPException``.
     """
     if not token:
         return None
-    user = await pipe.tokens.resolve_user(token)
-    if user is not None:
-        await pipe.tokens.touch_last_used(token)
-    return user
+    return await pipe.tokens.authenticate(token)
 
 
 async def authenticate_bearer(token: str | None) -> User | None:

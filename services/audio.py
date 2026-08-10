@@ -12,7 +12,11 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from database.exceptions import NotFoundError, SessionEndedError
+from database.exceptions import (
+    DuplicateSequenceError,
+    NotFoundError,
+    SessionEndedError,
+)
 from database.pipe import DatabasePipe
 from database.schema.segments import AudioSegment, SegmentCreate
 from database.schema.sessions import RecordingSession
@@ -25,6 +29,12 @@ DEFAULT_CONTENT_TYPE = "application/octet-stream"
 
 class ChecksumMismatchError(Exception):
     """The caller-declared checksum does not match the received bytes."""
+
+
+# Concurrent ingests into one session race for the same sequence number; the
+# loser retries with a fresh read. N concurrent callers need at most N
+# attempts (each round commits at least one), so this bounds contention width.
+_SEQUENCE_RETRIES = 5
 
 
 async def ingest_segment(
@@ -42,33 +52,75 @@ async def ingest_segment(
     channels: int | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> AudioSegment:
-    """Store one segment's bytes and register it against its session."""
-    segment_id = uuid4()
-    checksum = hashlib.sha256(data).digest()
+    """Store one segment's bytes and register it against its session.
 
+    Nothing is locked across the blob upload: the sequence number is a
+    snapshot read committed before the PUT, and the ``(session_id, sequence)``
+    unique constraint arbitrates concurrent ingests — a loser deletes its
+    object and retries with a fresh number. A caller-supplied ``sequence``
+    keeps single-shot semantics: its duplicate is a real error, as on the
+    streaming path.
+    """
+    checksum = hashlib.sha256(data).digest()
+    for attempts_left in reversed(range(_SEQUENCE_RETRIES)):
+        try:
+            return await _ingest_once(
+                session_id,
+                data,
+                checksum=checksum,
+                content_type=content_type,
+                filename=filename,
+                sequence=sequence,
+                captured_at=captured_at,
+                offset_ms=offset_ms,
+                duration_ms=duration_ms,
+                codec=codec,
+                sample_rate_hz=sample_rate_hz,
+                channels=channels,
+                metadata=metadata,
+            )
+        except DuplicateSequenceError:
+            if sequence is not None or attempts_left == 0:
+                raise
+    raise AssertionError("unreachable")  # the loop returns or raises
+
+
+async def _ingest_once(
+    session_id: UUID,
+    data: bytes,
+    *,
+    checksum: bytes,
+    content_type: str,
+    filename: str | None,
+    sequence: int | None,
+    captured_at: datetime | None,
+    offset_ms: int | None,
+    duration_ms: int | None,
+    codec: str | None,
+    sample_rate_hz: int | None,
+    channels: int | None,
+    metadata: dict[str, Any] | None,
+) -> AudioSegment:
+    segment_id = uuid4()
     async with DatabasePipe() as pipe:
         session = await pipe.sessions.get(session_id)
         if session is None:
             raise NotFoundError("recording session", session_id)
-        await pipe.sessions.touch(session_id)
-
-        # Reserved inside the transaction, before the key is built, so the
-        # number in the key matches the row. Holds a lock on the session until
-        # commit, serializing concurrent ingests into that one session.
         if sequence is None:
             sequence = await pipe.segments.next_sequence(session_id)
 
-        key = segment_key(
-            session.user_id,
-            session_id,
-            segment_id,
-            sequence,
-            suffix_for(content_type, filename),
-        )
-
-        async with BlobPipe() as blobs:
-            info = await blobs.put(key, data, content_type=content_type)
-            try:
+    key = segment_key(
+        session.user_id,
+        session_id,
+        segment_id,
+        sequence,
+        suffix_for(content_type, filename),
+    )
+    async with BlobPipe() as blobs:
+        info = await blobs.put(key, data, content_type=content_type)
+        try:
+            async with DatabasePipe() as pipe:
+                await pipe.sessions.touch(session_id)
                 return await pipe.segments.create(
                     SegmentCreate(
                         id=segment_id,
@@ -89,11 +141,11 @@ async def ingest_segment(
                         metadata=metadata or {},
                     )
                 )
-            except BaseException:
-                # Without a row, nothing will reference this object again. A
-                # failure of the COMMIT itself still orphans it.
-                await blobs.delete(key)
-                raise
+        except BaseException:
+            # Without a row, nothing will reference this object again. A
+            # failure of the COMMIT itself still orphans it.
+            await blobs.delete(key)
+            raise
 
 
 async def stream_segment(
@@ -137,9 +189,11 @@ async def stream_segment(
     info = await blobs.put(key, data, content_type=content_type)
     try:
         async with DatabasePipe() as pipe:
-            # The touch doubles as the liveness check: rowcount 0 means the
-            # session ended (REST or sweeper) after this connection attached.
-            if not await pipe.sessions.touch(session.id):
+            # Doubles as the liveness check: False means the session ended
+            # (REST or sweeper) after this connection attached. Throttled — a
+            # chunk-per-second stream must not rewrite the session row (row
+            # lock, WAL, trigger) on every chunk.
+            if not await pipe.sessions.touch_if_stale(session.id):
                 raise SessionEndedError(session.id)
             return await pipe.segments.create(
                 SegmentCreate(

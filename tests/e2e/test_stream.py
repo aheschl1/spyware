@@ -100,6 +100,45 @@ async def test_stream_happy_path(
     assert ended.json()["is_open"] is False
 
 
+async def test_concurrent_stores_keep_acks_cumulative(
+    server: str, client: httpx.AsyncClient, account: Account
+) -> None:
+    """A burst with disorder and a racing retransmit still acks contiguously.
+
+    Chunk stores run concurrently server-side (API_STREAM_INGEST_CONCURRENCY),
+    so completion order is arbitrary; `through` must still only advance over a
+    gapless prefix, and the retransmit must surface as a duplicate, not a
+    second row.
+    """
+    session = await make_session(account)
+    payloads = [wav_bytes(seconds=0.05, freq=300 + 10 * i) for i in range(20)]
+
+    async with _connect(server, session.id, account) as ws:
+        await ws.send(HELLO)
+        await _recv_until(ws, "welcome")
+        # 3 goes out twice back-to-back (a retransmit racing its original) and
+        # 5 lands before 4.
+        for sequence in [0, 1, 2, 3, 3, 5, 4, *range(6, 20)]:
+            await ws.send(_chunk(sequence, payloads[sequence]))
+        await ws.send(FINISH)
+        events = await _drain_to_close(ws)
+
+    acks = [event for event in events if event["type"] == "ack"]
+    assert [ack["through"] for ack in acks] == sorted(ack["through"] for ack in acks)
+    assert acks[-1]["through"] == 19
+    duplicates = [seq for ack in acks for seq in ack.get("duplicates", [])]
+    assert duplicates == [3]
+    assert sum(ack["count"] for ack in acks) == 20
+    assert events[-1] == {"type": "bye", "reason": "finished", "through": 19}
+
+    listed = await client.get(
+        f"/v1/sessions/{session.id}/segments",
+        params={"limit": 50},
+        headers=account.headers,
+    )
+    assert [item["sequence"] for item in listed.json()["items"]] == list(range(20))
+
+
 async def test_stream_resume_deduplicates_retransmits(
     server: str, client: httpx.AsyncClient, account: Account
 ) -> None:

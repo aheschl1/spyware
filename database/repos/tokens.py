@@ -90,18 +90,34 @@ class TokensRepo(BaseRepo):
         )
         return affected > 0
 
-    async def authenticate(self, token: str) -> User | None:
+    async def authenticate(self, token: str, min_interval_seconds: float = 60.0) -> User | None:
         """Resolve a token to its (active) owner, stamping ``last_used_at``.
 
-        A convenience combiner over :meth:`resolve_user` and
-        :meth:`touch_last_used`. The request path calls those two directly on a
-        short-lived connection (see ``api.deps.authenticate_bearer``) so the
-        stamp never rides along in a long request transaction.
+        The request path's single statement (see ``api.deps.authenticate_token``):
+        the throttled stamp rides in a data-modifying CTE — executed even though
+        nothing references it — so the common case is one round trip that writes
+        nothing and takes no row lock. Callers should still run this on a
+        short-lived connection so the rare stamp's lock never rides along in a
+        long request transaction.
         """
-        user = await self.resolve_user(token)
-        if user is not None:
-            await self.touch_last_used(token, min_interval_seconds=0.0)
-        return user
+        digest = hash_token(token)
+        sql = f"""
+            WITH stamp AS (
+                UPDATE auth_tokens SET last_used_at = now()
+                WHERE token_hash = %(digest)s AND {LIVE}
+                  AND (last_used_at IS NULL
+                       OR last_used_at < now() - make_interval(secs => %(interval)s))
+            )
+            SELECT {", ".join("u." + column for column in USER_COLUMNS.split(", "))}
+            FROM auth_tokens t JOIN users u ON u.id = t.user_id
+            WHERE t.token_hash = %(digest)s
+              AND t.revoked_at IS NULL
+              AND (t.expires_at IS NULL OR t.expires_at > now())
+              AND u.is_active
+        """
+        return await self._fetch_one(
+            User, sql, {"digest": digest, "interval": min_interval_seconds}
+        )
 
     async def get(self, token_id: UUID) -> AuthToken | None:
         return await self._fetch_one(
