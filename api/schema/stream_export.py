@@ -46,7 +46,8 @@ def build_schema() -> dict[str, Any]:
 
 
 def main() -> None:
-    print(json.dumps(build_schema(), indent=2, sort_keys=True))
+    # Same key order the server serves, so the two outputs diff cleanly.
+    print(json.dumps(build_schema(), indent=2))
 
 
 if __name__ == "__main__":
