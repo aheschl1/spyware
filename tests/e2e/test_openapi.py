@@ -6,6 +6,7 @@ EXPECTED_METHODS = {
     "/health": {"get"},
     "/health/ready": {"get"},
     "/stream-schema.json": {"get"},
+    "/v1/auth/login": {"post"},
     "/v1/me": {"get"},
     "/v1/sessions": {"get", "post"},
     "/v1/sessions/{session_id}": {"get"},

@@ -16,8 +16,10 @@ import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
+from fastapi.middleware.cors import CORSMiddleware
+
 from api.config import get_settings
-from api.routes import health, segments, sessions, stream, users
+from api.routes import auth, health, segments, sessions, stream, users
 from api.schema.common import ErrorResponse
 from api.schema.stream_export import build_schema
 from database.exceptions import DatabaseError, NotFoundError
@@ -79,6 +81,13 @@ def create_app() -> FastAPI:
         responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
     )
 
+    # Auth is a bearer header, never a cookie, so a wildcard origin grants
+    # nothing beyond what any HTTP client already has — and the miniapp
+    # WebView's fetches arrive cross-origin.
+    app.add_middleware(
+        CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"]
+    )
+
     # Domain errors from the repositories and services map to HTTP here, so no
     # route body needs a try/except.
     @app.exception_handler(NotFoundError)
@@ -114,6 +123,7 @@ def create_app() -> FastAPI:
         return stream_schema
 
     app.include_router(health.router)
+    app.include_router(auth.router, prefix=API_PREFIX)
     app.include_router(users.router, prefix=API_PREFIX)
     app.include_router(sessions.router, prefix=API_PREFIX)
     app.include_router(segments.router, prefix=API_PREFIX)

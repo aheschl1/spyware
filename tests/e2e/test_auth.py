@@ -65,6 +65,72 @@ async def test_deactivated_user_cannot_use_a_live_token(
     assert (await client.get(PROTECTED, headers=account.headers)).status_code == 401
 
 
+async def test_login_issues_a_working_token(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    """POST /v1/auth/login with the seeded password mints a usable token."""
+    response = await client.post(
+        "/v1/auth/login",
+        json={"email": account.user.email, "password": "s3cret", "name": "e2e-login"},
+    )
+    assert response.status_code == 200
+    token = response.json()["token"]
+    assert token != account.token  # a fresh token, not the seeded one
+
+    me = await client.get("/v1/me", headers={"Authorization": f"Bearer {token}"})
+    assert me.status_code == 200
+    assert me.json()["user"]["email"] == account.user.email
+
+    async with DatabasePipe() as pipe:
+        names = {t.name for t in await pipe.tokens.list_for_user(account.user.id)}
+    assert "e2e-login" in names
+
+
+async def test_login_refuses_bad_credentials(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    wrong_password = await client.post(
+        "/v1/auth/login", json={"email": account.user.email, "password": "not-it"}
+    )
+    assert wrong_password.status_code == 401
+
+    unknown_email = await client.post(
+        "/v1/auth/login", json={"email": "nobody@example.com", "password": "s3cret"}
+    )
+    assert unknown_email.status_code == 401
+    # Indistinguishable bodies: account existence must not leak.
+    assert wrong_password.json() == unknown_email.json()
+
+
+async def test_login_refuses_deactivated_user(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    async with DatabasePipe() as pipe:
+        await pipe.users.set_active(account.user.id, False)
+
+    response = await client.post(
+        "/v1/auth/login", json={"email": account.user.email, "password": "s3cret"}
+    )
+    assert response.status_code == 401
+
+
+async def test_cors_allows_the_webview_origin(client: httpx.AsyncClient) -> None:
+    """The miniapp WebView fetches cross-origin; the wildcard must be served."""
+    response = await client.get("/health", headers={"Origin": "http://localhost:3180"})
+    assert response.headers.get("access-control-allow-origin") == "*"
+
+    preflight = await client.options(
+        "/v1/auth/login",
+        headers={
+            "Origin": "http://localhost:3180",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers.get("access-control-allow-origin") == "*"
+
+
 async def test_use_stamps_last_used_at(client: httpx.AsyncClient, account: Account) -> None:
     """The stamp lands shortly after the response, not before it.
 
