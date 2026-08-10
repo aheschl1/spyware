@@ -152,6 +152,20 @@ each tier discovers its own input):
    `processing_jobs.artifact_id`), renders each span from the timeline, sends
    it to the transcription service, and records a `transcript` artifact on
    the same span (text preview in metadata, full response as a blob).
+3. **`diarize`** (`processing/pipelines/diarize.py`) — consumes each
+   session's `speech-map` (one job per session), but the diarizer never sees
+   a whole session: spans re-merge into *blocks* (contiguous speech, gap ≤
+   30 s joins, ≤ 30 min, closed at span boundaries) because label consistency
+   needs long context — the 30 s span cap is ASR's constraint, not
+   diarization's. Emits `speaker-turn` artifacts with **block-namespaced**
+   labels (`b{start}:SPEAKER_00` — local identity only; global identity is
+   the future clustering tier's job) plus one `speaker-embedding` artifact
+   per (block, speaker) whose vector lives in a blob under
+   `diarize/sessions/{id}/embeddings/`. Publication is atomic:
+   delete-previous + insert-all + `diarize-map` in one transaction, so the
+   map's presence is the completion marker and retries are idempotent.
+   Service seam: `processing/diarizer.py` → the diar_pyannote container
+   (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-3.1.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API

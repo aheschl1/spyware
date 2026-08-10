@@ -143,6 +143,56 @@ async def test_speech_spans_are_detected_and_transcribed(
     assert stored["response"]["received_bytes"] > expected_clip  # multipart adds framing
 
 
+async def test_speech_is_diarized_with_embeddings(
+    worker: None, clean_state, s3
+) -> None:
+    """The diarize tier: one block, block-namespaced turns, embedding blobs.
+
+    The stub diarization service answers two fixed 150ms turns for two
+    speakers; the tier offsets them onto the session timeline, namespaces the
+    labels per block, and stores one embedding blob per speaker.
+    """
+    account = await make_account()
+    session, _ = await _ended_session_with_segments(account)
+    async with DatabasePipe() as pipe:
+        await pipe.sessions.end(session.id)
+
+    job = await wait_for_job(session.id, "diarize", JobStatus.SUCCEEDED)
+    assert job.result == {"blocks": 1, "turns": 2, "speakers": 2}
+
+    async with DatabasePipe() as pipe:
+        speech_map = await pipe.artifacts.find("speech-detect", "speech-map", session.id)
+        turns = await pipe.artifacts.list_for_session(session.id, kind="speaker-turn")
+        embeddings = await pipe.artifacts.list_for_session(
+            session.id, kind="speaker-embedding"
+        )
+        diarize_map = await pipe.artifacts.find("diarize", "diarize-map", session.id)
+    assert speech_map is not None and job.artifact_id == speech_map.id
+
+    assert [(t.start_ms, t.end_ms, t.metadata["speaker"]) for t in turns] == [
+        (0, 150, "b0:SPEAKER_00"),
+        (150, 300, "b0:SPEAKER_01"),
+    ]
+    assert all(t.metadata["block_start_ms"] == 0 for t in turns)
+
+    # One embedding blob per (block, speaker); the vector lives in the blob,
+    # the row only addresses it. (Equal spans order by random id: sort.)
+    assert sorted(e.metadata["speaker"] for e in embeddings) == [
+        "b0:SPEAKER_00",
+        "b0:SPEAKER_01",
+    ]
+    for embedding in embeddings:
+        assert "embedding" not in embedding.metadata
+        stored = json.loads(
+            s3.get_object(Bucket=TEST_BUCKET, Key=embedding.object_key)["Body"].read()
+        )
+        assert stored["speaker"] == embedding.metadata["speaker"]
+        assert len(stored["embedding"]) == embedding.metadata["dim"] == 4
+
+    assert diarize_map is not None
+    assert diarize_map.metadata["turns"] == 2 and diarize_map.metadata["blocks"] == 1
+
+
 async def test_silent_session_yields_no_spans_and_no_transcription(
     worker: None, clean_state
 ) -> None:
@@ -155,11 +205,19 @@ async def test_silent_session_yields_no_spans_and_no_transcription(
     job = await wait_for_job(session.id, "speech-detect", JobStatus.SUCCEEDED)
     assert job.result is not None and job.result["spans"] == 0
 
+    # Diarize still consumes the (empty) speech-map and publishes an empty map.
+    diarized = await wait_for_job(session.id, "diarize", JobStatus.SUCCEEDED)
+    assert diarized.result is not None and diarized.result["turns"] == 0
+
     await asyncio.sleep(1.0)  # several transcribe discovery passes
     async with DatabasePipe() as pipe:
         speech_map = await pipe.artifacts.find("speech-detect", "speech-map", session.id)
+        diarize_map = await pipe.artifacts.find("diarize", "diarize-map", session.id)
+        turns = await pipe.artifacts.list_for_session(session.id, kind="speaker-turn")
         jobs = await pipe.jobs.list_for_session(session.id)
     assert speech_map is not None and speech_map.metadata["spans"] == 0
+    assert diarize_map is not None and diarize_map.metadata["turns"] == 0
+    assert turns == []
     assert [j.pipeline for j in jobs if j.pipeline == "transcribe"] == []
 
 

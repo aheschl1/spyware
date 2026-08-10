@@ -55,6 +55,15 @@ class ProcessingSettings(BaseSettings):
     transcriber_protocol: str = "openai"  # or "cog"
     transcriber_timeout_seconds: float = 600.0
 
+    # Diarization tier. Speech spans re-merge into blocks (contiguous speech,
+    # gap-joined and capped) because diarization label consistency needs long
+    # context — see docs/processing-pipelines.md.
+    diarizer_base_url: str = "http://127.0.0.1:8034/v1"
+    diarizer_timeout_seconds: float = 900.0  # a 30-min block is minutes of GPU
+    diarize_block_merge_gap_ms: int = 30_000
+    diarize_max_block_ms: int = 1_800_000
+    diarize_min_turn_ms: int = 300
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> ProcessingSettings:

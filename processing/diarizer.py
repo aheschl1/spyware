@@ -1,0 +1,90 @@
+"""The diarization-service client seam.
+
+The diarize tier depends on this contract, not on pyannote: ``POST
+{base}/audio/diarizations`` (multipart) answering turns with block-local
+speaker labels plus one embedding per detected speaker. The diar_pyannote
+container implements it; anything else that speaks the same JSON can be
+swapped in via ``PROCESSING_DIARIZER_BASE_URL``.
+"""
+
+from dataclasses import dataclass
+from typing import Any
+
+import httpx
+
+from processing.config import ProcessingSettings
+
+
+class DiarizerError(Exception):
+    """The service failed or answered something unusable. Retryable."""
+
+
+@dataclass(frozen=True, slots=True)
+class Turn:
+    start_ms: int
+    end_ms: int
+    speaker: str  # label local to this one request
+
+
+@dataclass(frozen=True, slots=True)
+class DiarizationResult:
+    turns: tuple[Turn, ...]
+    embeddings: dict[str, list[float]]  # per local speaker label
+    model: str
+
+
+class Diarizer:
+    def __init__(self, settings: ProcessingSettings) -> None:
+        self._base_url = settings.diarizer_base_url.rstrip("/")
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.diarizer_timeout_seconds, connect=10.0)
+        )
+
+    async def close(self) -> None:
+        await self._client.aclose()
+
+    async def diarize(self, wav: bytes, *, filename: str = "block.wav") -> DiarizationResult:
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/audio/diarizations",
+                files={"file": (filename, wav, "audio/wav")},
+            )
+        except httpx.HTTPError as exc:
+            raise DiarizerError(f"diarizer unreachable: {exc}") from exc
+        if response.status_code >= 400:
+            raise DiarizerError(
+                f"diarizer answered {response.status_code}: {response.text[:500]}"
+            )
+        try:
+            body = response.json()
+        except ValueError as exc:
+            raise DiarizerError(f"non-JSON diarizer response: {exc}") from exc
+        return parse_response(body)
+
+
+def parse_response(body: Any) -> DiarizationResult:
+    """Validate the service's JSON into a result; DiarizerError when unusable."""
+    if not isinstance(body, dict) or not isinstance(body.get("turns"), list):
+        raise DiarizerError(f"no turns in diarizer response: {body!r}")
+    try:
+        turns = tuple(
+            Turn(int(t["start_ms"]), int(t["end_ms"]), str(t["speaker"]))
+            for t in body["turns"]
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DiarizerError(f"malformed turn in diarizer response: {exc}") from exc
+
+    raw_embeddings = body.get("embeddings") or {}
+    if not isinstance(raw_embeddings, dict):
+        raise DiarizerError(f"malformed embeddings in diarizer response: {raw_embeddings!r}")
+    embeddings: dict[str, list[float]] = {}
+    for speaker, vector in raw_embeddings.items():
+        if not isinstance(vector, list) or not all(
+            isinstance(value, (int, float)) for value in vector
+        ):
+            raise DiarizerError(f"malformed embedding for {speaker!r}")
+        embeddings[str(speaker)] = [float(value) for value in vector]
+
+    return DiarizationResult(
+        turns=turns, embeddings=embeddings, model=str(body.get("model", ""))
+    )

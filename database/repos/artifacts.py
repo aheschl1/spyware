@@ -1,7 +1,9 @@
 """Raw-SQL repository for the ``pipeline_artifacts`` table."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from database.repos.base import BaseRepo
@@ -38,6 +40,56 @@ class ArtifactsRepo(BaseRepo):
         )
         assert artifact is not None  # INSERT ... RETURNING always yields a row
         return artifact
+
+    async def create_many(self, items: Sequence[ArtifactCreate]) -> list[PipelineArtifact]:
+        """Insert a batch in one statement, in order.
+
+        The publication path for pipelines that emit many artifacts per run
+        (diarize: hundreds of turns) — one round trip, one transaction with
+        whatever else the caller is publishing.
+        """
+        if not items:
+            return []
+        params: list = []
+        for item in items:
+            params += [
+                item.pipeline,
+                item.kind,
+                item.session_id,
+                item.start_ms,
+                item.end_ms,
+                item.bucket,
+                item.object_key,
+                Jsonb(item.links),
+                Jsonb(item.metadata),
+            ]
+        values = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(items))
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                    INSERT INTO pipeline_artifacts
+                        (pipeline, kind, session_id, start_ms, end_ms,
+                         bucket, object_key, links, metadata)
+                    VALUES {values}
+                    RETURNING {COLUMNS}
+                """,
+                params,
+            )
+            rows = await cur.fetchall()
+        return [PipelineArtifact.model_validate(row) for row in rows]
+
+    async def delete_for_pipeline(self, session_id: UUID, pipeline: str) -> int:
+        """Remove every artifact one pipeline produced for a session.
+
+        The idempotent-republication primitive: a retrying job clears its own
+        previous output before writing the new set, in one transaction, so
+        consumers never observe a partial mix. Blobs are untouched (rewriting
+        jobs overwrite the same keys).
+        """
+        return await self._execute(
+            "DELETE FROM pipeline_artifacts WHERE session_id = %s AND pipeline = %s",
+            (session_id, pipeline),
+        )
 
     async def get(self, artifact_id: UUID) -> PipelineArtifact | None:
         return await self._fetch_one(

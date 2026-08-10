@@ -49,11 +49,11 @@ def minio() -> Iterator[MinioContainer]:
 
 
 @pytest.fixture(scope="session")
-def stub_transcriber() -> Iterator[str]:
-    """A fake transcription service; yields its base URL (with /v1)."""
+def stub_audio_services() -> Iterator[str]:
+    """Fake transcription + diarization services; yields the base URL (with /v1)."""
     port = _free_port()
     process = subprocess.Popen(
-        [sys.executable, "-m", "tests.e2e.stub_transcriber", str(port)], cwd=REPO_ROOT
+        [sys.executable, "-m", "tests.e2e.stub_audio_services", str(port)], cwd=REPO_ROOT
     )
     base_url = f"http://127.0.0.1:{port}/v1"
     deadline = time.monotonic() + SERVER_BOOT_TIMEOUT
@@ -74,7 +74,7 @@ def stub_transcriber() -> Iterator[str]:
 
 @pytest.fixture(scope="session")
 def test_env(
-    postgres: PostgresContainer, minio: MinioContainer, stub_transcriber: str
+    postgres: PostgresContainer, minio: MinioContainer, stub_audio_services: str
 ) -> dict[str, str]:
     """Point every DATABASE_*/STORAGE_* variable at the containers.
 
@@ -117,12 +117,16 @@ def test_env(
         "PROCESSING_RETRY_BACKOFF_BASE_SECONDS": "0.05",
         "PROCESSING_RETRY_BACKOFF_CAP_SECONDS": "0.2",
         "PROCESSING_SHUTDOWN_GRACE_SECONDS": "5",
-        # Deterministic speech detection (a sine tone IS activity) and the
-        # stub transcription service instead of a GPU container.
+        # Deterministic speech detection (a sine tone IS activity) and stub
+        # model services instead of GPU containers. The stub's canned turns
+        # are 150ms, so the min-turn filter is lowered below them.
         "PROCESSING_VAD_BACKEND": "energy",
-        "PROCESSING_TRANSCRIBER_BASE_URL": stub_transcriber,
+        "PROCESSING_TRANSCRIBER_BASE_URL": stub_audio_services,
         "PROCESSING_TRANSCRIBER_PROTOCOL": "openai",
         "PROCESSING_TRANSCRIBER_TIMEOUT_SECONDS": "10",
+        "PROCESSING_DIARIZER_BASE_URL": stub_audio_services,
+        "PROCESSING_DIARIZER_TIMEOUT_SECONDS": "10",
+        "PROCESSING_DIARIZE_MIN_TURN_MS": "100",
     }
     os.environ.update(env)
 
