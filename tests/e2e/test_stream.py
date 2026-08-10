@@ -11,6 +11,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import websockets
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError, InvalidStatus
 
 from api.schema.stream import ChunkHeader, encode_chunk
 from tests.e2e.conftest import Account, make_session
@@ -51,7 +52,7 @@ async def _drain_to_close(ws: Any) -> list[dict[str, Any]]:
     try:
         while True:
             events.append(await _recv_event(ws))
-    except websockets.exceptions.ConnectionClosed:
+    except ConnectionClosed:
         return events
 
 
@@ -151,18 +152,24 @@ async def test_duplicate_sequence_on_one_connection(server: str, account: Accoun
         assert ack["duplicates"] == [0]
 
 
-async def test_handshake_rejections(
+async def test_header_mode_handshake_rejections(
     server: str, client: httpx.AsyncClient, account: Account, other_account: Account
 ) -> None:
+    """With an Authorization header present, failures reject the upgrade.
+
+    A connection with no header at all is not rejected -- it enters hello-token
+    mode, covered by test_hello_token_mode_rejections.
+    """
     session = await make_session(account)
 
-    async def status_for(session_id: Any, connecting: Account | None) -> int:
-        with pytest.raises(websockets.exceptions.InvalidStatus) as err:
+    async def status_for(session_id: Any, connecting: Account) -> int:
+        with pytest.raises(InvalidStatus) as err:
             async with _connect(server, session_id, connecting):
                 pass
         return err.value.response.status_code
 
-    assert await status_for(session.id, None) == 401
+    bogus = Account(user=account.user, token="not-a-token")
+    assert await status_for(session.id, bogus) == 401
     assert await status_for(session.id, other_account) == 404
     assert await status_for(uuid4(), account) == 404
 
@@ -175,7 +182,7 @@ async def test_first_frame_must_be_hello(server: str, account: Account) -> None:
     session = await make_session(account)
     async with _connect(server, session.id, account) as ws:
         await ws.send(FINISH)
-        with pytest.raises(websockets.exceptions.ConnectionClosedError) as err:
+        with pytest.raises(ConnectionClosedError) as err:
             await _recv_until(ws, "never")
         assert err.value.rcvd is not None
         assert err.value.rcvd.code == 4400
@@ -227,13 +234,69 @@ async def test_session_ended_mid_stream_closes_4409(
         assert ended.status_code == 200
 
         await ws.send(_chunk(1, wav_bytes(seconds=0.05)))
-        with pytest.raises(websockets.exceptions.ConnectionClosedError) as err:
+        with pytest.raises(ConnectionClosedError) as err:
             while True:
                 event = await _recv_event(ws)
                 if event["type"] == "error":
                     assert (event["scope"], event["code"]) == ("session", "session_ended")
         assert err.value.rcvd is not None
         assert err.value.rcvd.code == 4409
+
+
+def _hello_with_token(token: str) -> str:
+    return json.dumps(
+        {"type": "hello", "version": 1, "token": token, "defaults": {"content_type": "audio/wav"}}
+    )
+
+
+async def test_hello_token_mode_happy_path(
+    server: str, client: httpx.AsyncClient, account: Account
+) -> None:
+    """A header-less client (browser/embedded) authenticates inside hello."""
+    session = await make_session(account)
+    payloads = [wav_bytes(seconds=0.05, freq=300 + 10 * i) for i in range(3)]
+
+    async with websockets.connect(_url(server, session.id)) as ws:  # no auth header
+        await ws.send(_hello_with_token(account.token))
+        welcome = await _recv_until(ws, "welcome")
+        assert welcome["next_sequence"] == 0
+        for sequence, payload in enumerate(payloads):
+            await ws.send(_chunk(sequence, payload))
+        await ws.send(FINISH)
+        events = await _drain_to_close(ws)
+
+    assert events[-1]["type"] == "bye"
+    assert events[-1]["through"] == 2
+
+    listed = await client.get(f"/v1/sessions/{session.id}/segments", headers=account.headers)
+    assert [item["sequence"] for item in listed.json()["items"]] == [0, 1, 2]
+
+
+async def test_hello_token_mode_rejections(
+    server: str, client: httpx.AsyncClient, account: Account, other_account: Account
+) -> None:
+    """Handshake failures become close codes when auth rides in hello."""
+
+    async def close_code_for(session_id: Any, token: str | None) -> int:
+        async with websockets.connect(_url(server, session_id)) as ws:
+            hello: dict[str, Any] = {"type": "hello", "version": 1}
+            if token is not None:
+                hello["token"] = token
+            await ws.send(json.dumps(hello))
+            with pytest.raises(ConnectionClosed) as err:
+                await ws.recv()
+            assert err.value.rcvd is not None
+            return err.value.rcvd.code
+
+    session = await make_session(account)
+    assert await close_code_for(session.id, "not-a-token") == 1008
+    assert await close_code_for(session.id, None) == 1008
+    assert await close_code_for(session.id, other_account.token) == 4404
+    assert await close_code_for(uuid4(), account.token) == 4404
+
+    ended = await client.post(f"/v1/sessions/{session.id}/end", headers=account.headers)
+    assert ended.status_code == 200
+    assert await close_code_for(session.id, account.token) == 4409
 
 
 async def test_stale_sessions_are_swept(
@@ -267,7 +330,7 @@ async def test_stale_sessions_are_swept(
     swept = await client.get(f"/v1/sessions/{session.id}", headers=account.headers)
     assert swept.json()["is_open"] is False
 
-    with pytest.raises(websockets.exceptions.InvalidStatus) as err:
+    with pytest.raises(InvalidStatus) as err:
         async with _connect(server, session.id, account):
             pass
     assert err.value.response.status_code == 409

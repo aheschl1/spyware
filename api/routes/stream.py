@@ -48,8 +48,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["stream"])
 
-# Application close codes; handshake failures are HTTP statuses on the upgrade.
+# Application close codes. With header auth, handshake failures are HTTP
+# statuses on the rejected upgrade; in hello-token mode they are close codes.
 CLOSE_PROTOCOL_ERROR = 4400
+CLOSE_SESSION_NOT_FOUND = 4404
 CLOSE_SESSION_ENDED = 4409
 CLOSE_INTERNAL = 4500
 
@@ -180,55 +182,110 @@ async def _deny(websocket: WebSocket, status_code: int, detail: str) -> None:
         await websocket.close(code=1008, reason=detail)
 
 
+class _Attachment:
+    """The outcome of authenticating and loading the target session."""
+
+    def __init__(
+        self, session: RecordingSession | None, next_sequence: int, failure: str | None
+    ) -> None:
+        self.session = session
+        self.next_sequence = next_sequence
+        self.failure = failure  # None, or a key into _DENIALS / _HELLO_CLOSE_CODES
+
+
+_DENIALS = {
+    "unauthorized": (401, "a valid bearer token is required"),
+    "not_found": (404, "recording session not found"),
+    "ended": (409, "recording session has ended"),
+}
+
+# In hello-token mode the socket is already accepted, so failures are close
+# codes instead of HTTP statuses.
+_HELLO_CLOSE_CODES = {
+    "unauthorized": 1008,
+    "not_found": CLOSE_SESSION_NOT_FOUND,
+    "ended": CLOSE_SESSION_ENDED,
+}
+
+
+async def _attach(session_id: UUID, token: str | None) -> _Attachment:
+    """Authenticate the token and load + check the session it targets."""
+    async with DatabasePipe() as pipe:
+        user = await authenticate_token(pipe, token)
+        if user is None:
+            return _Attachment(None, 0, "unauthorized")
+        session = await pipe.sessions.get(session_id)
+        if session is None or session.user_id != user.id:
+            return _Attachment(None, 0, "not_found")
+        if not session.is_open:
+            return _Attachment(None, 0, "ended")
+        # Attaching counts as activity; briefly locks the session row.
+        await pipe.sessions.touch(session.id)
+        next_sequence = await pipe.segments.next_sequence(session.id)
+    return _Attachment(session, next_sequence, None)
+
+
 @router.websocket("/sessions/{session_id}/stream")
 async def stream_session_audio(websocket: WebSocket, session_id: UUID) -> None:
     """Attach to an open session and ingest streamed chunks."""
     settings = get_settings()
 
-    next_sequence = 0
-    async with DatabasePipe() as pipe:
-        user = await authenticate_token(pipe, _bearer_token(websocket))
-        session = await pipe.sessions.get(session_id) if user is not None else None
-        owned = user is not None and session is not None and session.user_id == user.id
-        if owned and session is not None and session.is_open:
-            # Attaching counts as activity; briefly locks the session row.
-            await pipe.sessions.touch(session.id)
-            next_sequence = await pipe.segments.next_sequence(session.id)
+    header_token = _bearer_token(websocket)
+    if header_token is not None:
+        # Canonical mode: authenticate before accepting, so failures are real
+        # HTTP statuses on the rejected upgrade. Any hello.token is ignored.
+        attachment = await _attach(session_id, header_token)
+        if attachment.failure is not None:
+            status_code, detail = _DENIALS[attachment.failure]
+            await _deny(websocket, status_code, detail)
+            return
+        await websocket.accept()
+        hello, close_code = await _await_hello(websocket, settings)
+    else:
+        # Fallback mode for clients whose websocket cannot set headers: accept
+        # first, authenticate the token carried inside hello.
+        await websocket.accept()
+        hello, close_code = await _await_hello(websocket, settings)
+        attachment = None
+        if hello is not None:
+            attachment = await _attach(session_id, hello.token)
+            if attachment.failure is not None:
+                _, detail = _DENIALS[attachment.failure]
+                await websocket.close(
+                    code=_HELLO_CLOSE_CODES[attachment.failure], reason=detail
+                )
+                return
 
-    if user is None:
-        await _deny(websocket, 401, "a valid bearer token is required")
-        return
-    if not owned or session is None:
-        await _deny(websocket, 404, "recording session not found")
-        return
-    if not session.is_open:
-        await _deny(websocket, 409, "recording session has ended")
+    if hello is None or attachment is None:
+        if close_code is not None:
+            await websocket.close(code=close_code)
         return
 
-    await websocket.accept()
+    session = attachment.session
+    assert session is not None  # failure was None
+    next_sequence = attachment.next_sequence
+
     outbox = _Outbox(websocket)
     window = AckWindow(
         chunks=settings.stream_ack_window_chunks, seconds=settings.stream_ack_window_seconds
     )
     tracker = _AckTracker(outbox, next_sequence - 1, window)
-    close_code: int | None = None
+    close_code = None
     try:
-        hello, close_code = await _await_hello(websocket, settings)
-        if hello is not None:
-            outbox.publish(
-                Welcome(
-                    session_id=session.id,
-                    next_sequence=next_sequence,
-                    ack_window=window,
-                    limits=StreamLimits(max_chunk_bytes=settings.stream_max_chunk_bytes),
-                )
+        outbox.publish(
+            Welcome(
+                session_id=session.id,
+                next_sequence=next_sequence,
+                ack_window=window,
+                limits=StreamLimits(max_chunk_bytes=settings.stream_max_chunk_bytes),
             )
-            async with BlobPipe() as blobs:
-                bye_reason, close_code = await _pump(
-                    websocket, outbox, tracker, blobs, session, hello, settings
-                )
-            if bye_reason is not None:
-                outbox.publish(Bye(reason=bye_reason, through=tracker.through))
+        )
+        async with BlobPipe() as blobs:
+            bye_reason, close_code = await _pump(
+                websocket, outbox, tracker, blobs, session, hello, settings
+            )
+        if bye_reason is not None:
+            outbox.publish(Bye(reason=bye_reason, through=tracker.through))
     except asyncio.CancelledError:
         # Server shutdown: uvicorn cancelled this handler. Say goodbye if the
         # socket still works, but never delay the shutdown for it.

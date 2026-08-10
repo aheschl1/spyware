@@ -70,10 +70,18 @@ def test_parse_client_frame_hello_and_finish() -> None:
     )
     assert isinstance(hello, Hello)
     assert hello.defaults.content_type == "audio/wav"
+    assert hello.token is None
 
     finish = parse_client_frame('{"type": "finish"}')
     assert isinstance(finish, Finish)
     assert finish.ended_at is None
+
+
+def test_parse_hello_with_token() -> None:
+    # Hello-token mode: the fallback credential for header-less clients.
+    hello = parse_client_frame('{"type": "hello", "version": 1, "token": "tok-123"}')
+    assert isinstance(hello, Hello)
+    assert hello.token == "tok-123"
 
 
 @pytest.mark.parametrize(

@@ -1,7 +1,9 @@
 # Streaming upload protocol
 
 Version 1. Server frame models live in `api/schema/stream.py`; the handler in
-`api/routes/stream.py`.
+`api/routes/stream.py`. The server publishes the frame schema as JSON Schema
+at **`GET /stream-schema.json`** (next to `/openapi.json`) — clients generate
+their frame types from that document rather than transcribing this file.
 
 Clients record short, self-contained audio chunks and upload each one as a
 single websocket message. The server stores every chunk as one `AudioSegment`
@@ -17,11 +19,13 @@ Authorization: Bearer <token>
 ```
 
 The session is created first over REST (`POST /v1/sessions`) and must be open
-and owned by the caller. Authentication uses the same bearer token as REST, on
-the upgrade request itself — the token never appears inside a websocket frame.
+and owned by the caller. The bearer token is the same one REST uses, and there
+are two ways to present it:
 
-A failed handshake is a rejected upgrade with a real HTTP status and the REST
-error body (`{"detail": ...}`):
+**Header mode (canonical).** Send `Authorization: Bearer <token>` on the
+upgrade request. The server authenticates before accepting, so a failed
+handshake is a rejected upgrade with a real HTTP status and the REST error
+body (`{"detail": ...}`):
 
 | status | meaning |
 |---|---|
@@ -29,9 +33,19 @@ error body (`{"detail": ...}`):
 | 404 | session does not exist, or belongs to someone else |
 | 409 | session has already ended |
 
-Note: browser `WebSocket` clients cannot set request headers. If a browser
-client ever matters, an optional `hello.token` fallback can be added without
-breaking this protocol; nothing else assumes header auth.
+**Hello-token mode (fallback).** Clients whose websocket cannot set request
+headers — browsers, embedded runtimes — omit the header and put the token in
+the `hello` frame (`hello.token`). The server accepts the socket first, then
+authenticates when `hello` arrives; the same failures become close codes
+instead of HTTP statuses:
+
+| close code | meaning |
+|---|---|
+| 1008 | missing or invalid token |
+| 4404 | session does not exist, or belongs to someone else |
+| 4409 | session has already ended |
+
+When a valid `Authorization` header is present, `hello.token` is ignored.
 
 ## Connection lifecycle
 
@@ -58,6 +72,7 @@ recognise** — that is how new effect events arrive without a version bump.
 {
   "type": "hello",
   "version": 1,
+  "token": null,
   "defaults": {
     "content_type": "audio/wav",
     "codec": "pcm_s16le",
@@ -71,8 +86,8 @@ recognise** — that is how new effect events arrive without a version bump.
 `defaults` (all optional) apply to every chunk; a chunk may override
 `content_type` only. `effects` is reserved for requesting server-side effects;
 no effects exist yet, and the server echoes the enabled set in `welcome`.
-Credentials do not belong here. A `version` the server does not speak closes
-the socket with 4400.
+`token` is used only in hello-token mode (see *Connecting*). A `version` the
+server does not speak closes the socket with 4400.
 
 ### `chunk` (binary)
 
@@ -179,8 +194,10 @@ open), or `shutdown` (server going away; reconnect and resume).
 |---|---|
 | 1000 | normal close (after `bye`) |
 | 1001 | server going away (drain attempted) |
+| 1008 | invalid token in hello-token mode |
 | 4400 | protocol error: hello missing/late/invalid, malformed text frame |
-| 4409 | session ended mid-stream |
+| 4404 | session missing / not owned, hello-token mode |
+| 4409 | session ended (at the hello-token handshake, or mid-stream) |
 | 4500 | internal error |
 
 ## Disconnects, resume, and automatic session close

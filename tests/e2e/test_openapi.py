@@ -5,6 +5,7 @@ import httpx
 EXPECTED_METHODS = {
     "/health": {"get"},
     "/health/ready": {"get"},
+    "/stream-schema.json": {"get"},
     "/v1/me": {"get"},
     "/v1/sessions": {"get", "post"},
     "/v1/sessions/{session_id}": {"get"},
@@ -42,3 +43,11 @@ async def test_paged_schemas_are_generated_per_item_type(client: httpx.AsyncClie
 
 async def test_docs_render(client: httpx.AsyncClient) -> None:
     assert (await client.get("/docs")).status_code == 200
+
+
+async def test_stream_schema_matches_models(client: httpx.AsyncClient) -> None:
+    """The served schema is exactly what the models produce; codegen targets it."""
+    from api.schema.stream_export import build_schema
+
+    served = (await client.get("/stream-schema.json")).json()
+    assert served == build_schema()

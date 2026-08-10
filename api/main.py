@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 from api.config import get_settings
 from api.routes import health, segments, sessions, stream, users
 from api.schema.common import ErrorResponse
+from api.schema.stream_export import build_schema
 from database.exceptions import DatabaseError, NotFoundError
 from database.pipe import DatabasePipe, close_pool
 from storage.base import BlobNotFoundError
@@ -95,6 +96,22 @@ def create_app() -> FastAPI:
     async def _database_error(request: Request, exc: DatabaseError) -> JSONResponse:
         logger.exception("database error serving %s", request.url.path)
         return _error(status.HTTP_500_INTERNAL_SERVER_ERROR, "internal error")
+
+    # Built once: the frame models are fixed for the process lifetime.
+    stream_schema = build_schema()
+
+    @app.get(
+        "/stream-schema.json",
+        tags=["stream"],
+        summary="Frame schema for the streaming websocket",
+    )
+    async def stream_schema_json() -> dict:
+        """JSON Schema for the websocket frames (docs/streaming-protocol.md).
+
+        The websocket itself cannot appear in OpenAPI; clients generate their
+        frame types from this document instead.
+        """
+        return stream_schema
 
     app.include_router(health.router)
     app.include_router(users.router, prefix=API_PREFIX)

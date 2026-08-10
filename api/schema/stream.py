@@ -36,12 +36,19 @@ class StreamDefaults(BaseModel):
 
 
 class Hello(BaseModel):
-    """The required first frame. Credentials travel in the upgrade request."""
+    """The required first frame.
+
+    Credentials normally travel in the upgrade request's Authorization header;
+    ``token`` is the fallback for clients whose websocket cannot set headers
+    (browsers, embedded runtimes). It is ignored when the upgrade carried a
+    valid header.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     type: Literal["hello"]
     version: int
+    token: str | None = None
     defaults: StreamDefaults = StreamDefaults()
     effects: tuple[str, ...] = ()  # reserved: no effects exist yet
 
