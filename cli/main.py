@@ -84,7 +84,7 @@ async def check() -> None:
     click.echo(f"ok: connected to {settings.summary}")
 
 
-# --------------------------------------------------------------------------- users
+#  users
 
 
 @cli.group()

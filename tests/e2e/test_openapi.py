@@ -2,23 +2,26 @@
 
 import httpx
 
-EXPECTED_PATHS = {
-    "/health",
-    "/health/ready",
-    "/v1/me",
-    "/v1/sessions",
-    "/v1/sessions/{session_id}",
-    "/v1/sessions/{session_id}/segments",
-    "/v1/segments",
-    "/v1/segments/{segment_id}",
-    "/v1/segments/{segment_id}/audio",
+EXPECTED_METHODS = {
+    "/health": {"get"},
+    "/health/ready": {"get"},
+    "/v1/me": {"get"},
+    "/v1/sessions": {"get", "post"},
+    "/v1/sessions/{session_id}": {"get"},
+    "/v1/sessions/{session_id}/end": {"post"},
+    "/v1/sessions/{session_id}/segments": {"get"},
+    "/v1/segments": {"get"},
+    "/v1/segments/{segment_id}": {"get"},
+    "/v1/segments/{segment_id}/audio": {"get"},
 }
 
 
 async def test_openapi_publishes_every_route(client: httpx.AsyncClient) -> None:
     spec = (await client.get("/openapi.json")).json()
-    assert set(spec["paths"]) == EXPECTED_PATHS
-    assert all(set(methods) == {"get"} for methods in spec["paths"].values()), "reads only"
+    assert {path: set(methods) for path, methods in spec["paths"].items()} == EXPECTED_METHODS
+    # The streaming websocket cannot appear in OpenAPI; its contract lives in
+    # docs/streaming-protocol.md and is exercised by test_stream.py.
+    assert "/v1/sessions/{session_id}/stream" not in spec["paths"]
 
 
 async def test_segment_schema_hides_storage_layout(client: httpx.AsyncClient) -> None:

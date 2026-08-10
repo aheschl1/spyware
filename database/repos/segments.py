@@ -8,7 +8,7 @@ from uuid import UUID
 from psycopg import errors
 from psycopg.types.json import Jsonb
 
-from database.exceptions import NotFoundError
+from database.exceptions import DuplicateSequenceError, NotFoundError
 from database.repos.base import BaseRepo
 from database.schema.segments import AudioSegment, SegmentCreate, UserUsage
 
@@ -83,6 +83,12 @@ class SegmentsRepo(BaseRepo):
             raise NotFoundError(
                 "recording session for user", (data.session_id, data.user_id)
             ) from exc
+        except errors.UniqueViolation as exc:
+            # object_key embeds a fresh UUID, so of the two unique constraints
+            # only (session_id, sequence) can realistically fire: a retransmit.
+            if exc.diag.constraint_name == "audio_segments_session_id_sequence_key":
+                raise DuplicateSequenceError(data.session_id, sequence) from exc
+            raise
         assert segment is not None  # INSERT ... RETURNING always yields a row
         return segment
 

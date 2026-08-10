@@ -253,6 +253,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "testcontainers", extra = ["minio"] },
+    { name = "websockets" },
 ]
 
 [package.metadata]
@@ -274,6 +275,7 @@ dev = [
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "testcontainers", extras = ["minio", "postgres"], specifier = ">=4.15.0" },
+    { name = "websockets", specifier = ">=17.0.1" },
 ]
 
 [[package]]

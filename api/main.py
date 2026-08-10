@@ -6,8 +6,9 @@
 
 """
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from typing import AsyncIterator
 
 import click
@@ -15,7 +16,8 @@ import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
-from api.routes import health, segments, sessions, users
+from api.config import get_settings
+from api.routes import health, segments, sessions, stream, users
 from api.schema.common import ErrorResponse
 from database.exceptions import DatabaseError, NotFoundError
 from database.pipe import DatabasePipe, close_pool
@@ -26,13 +28,37 @@ logger = logging.getLogger(__name__)
 API_PREFIX = "/v1"
 
 
+async def _sweep_stale_sessions() -> None:
+    """End sessions abandoned mid-stream (docs/streaming-protocol.md).
+
+    Streaming and ingest heartbeat ``updated_at``; a session that stops
+    heartbeating was dropped without a ``finish``, and is closed here once the
+    stale window passes. Every pass is idempotent, so multi-worker deploys
+    sweep concurrently without coordination.
+    """
+    settings = get_settings()
+    while True:
+        await asyncio.sleep(settings.session_sweep_interval_seconds)
+        try:
+            async with DatabasePipe() as pipe:
+                ended = await pipe.sessions.end_stale(settings.session_stale_seconds)
+            if ended:
+                logger.info("ended %d stale recording session(s)", ended)
+        except Exception:
+            logger.exception("stale-session sweep failed; will retry")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Open the pool at boot so a bad DATABASE_* config fails here, not on the
     # first request.
     async with DatabasePipe() as pipe:
         await pipe.ping()
+    sweeper = asyncio.create_task(_sweep_stale_sessions())
     yield
+    sweeper.cancel()
+    with suppress(asyncio.CancelledError):
+        await sweeper
     await close_pool()
 
 
@@ -44,7 +70,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="audio-pipeline",
         version="0.1.0",
-        summary="Read access to recording sessions and their audio segments.",
+        summary=(
+            "Recording sessions and their audio segments. Audio is uploaded over "
+            "the streaming websocket described in docs/streaming-protocol.md."
+        ),
         lifespan=lifespan,
         responses={401: {"model": ErrorResponse}, 404: {"model": ErrorResponse}},
     )
@@ -71,6 +100,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router, prefix=API_PREFIX)
     app.include_router(sessions.router, prefix=API_PREFIX)
     app.include_router(segments.router, prefix=API_PREFIX)
+    app.include_router(stream.router, prefix=API_PREFIX)
     return app
 
 

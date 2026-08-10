@@ -40,18 +40,24 @@ async def get_pipe() -> AsyncIterator[DatabasePipe]:
 Pipe = Annotated[DatabasePipe, Depends(get_pipe)]
 
 
+async def authenticate_token(pipe: DatabasePipe, token: str | None) -> User | None:
+    """Resolve a bearer token to its owner; None when missing or invalid.
+
+    ``tokens.authenticate`` rejects unknown, revoked and expired tokens and
+    inactive users, and stamps ``last_used_at``. Shared with the websocket
+    upgrade check, which cannot use ``HTTPBearer``/``HTTPException``.
+    """
+    if not token:
+        return None
+    return await pipe.tokens.authenticate(token)
+
+
 async def get_current_user(
     pipe: Pipe,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> User:
-    """Resolve the bearer token to its owner, or raise 401.
-
-    ``tokens.authenticate`` rejects unknown, revoked and expired tokens and
-    inactive users, and stamps ``last_used_at``.
-    """
-    if credentials is None:
-        raise _UNAUTHENTICATED
-    user = await pipe.tokens.authenticate(credentials.credentials)
+    """Resolve the bearer token to its owner, or raise 401."""
+    user = await authenticate_token(pipe, credentials.credentials if credentials else None)
     if user is None:
         raise _UNAUTHENTICATED
     return user

@@ -1,0 +1,248 @@
+# Streaming upload protocol
+
+Version 1. Server frame models live in `api/schema/stream.py`; the handler in
+`api/routes/stream.py`.
+
+Clients record short, self-contained audio chunks and upload each one as a
+single websocket message. The server stores every chunk as one `AudioSegment`
+(visible immediately through the REST API) and answers with typed JSON events:
+cumulative acknowledgements today, effect output (transcription, VAD, …)
+tomorrow, over the same connection.
+
+## Connecting
+
+```
+WS /v1/sessions/{session_id}/stream
+Authorization: Bearer <token>
+```
+
+The session is created first over REST (`POST /v1/sessions`) and must be open
+and owned by the caller. Authentication uses the same bearer token as REST, on
+the upgrade request itself — the token never appears inside a websocket frame.
+
+A failed handshake is a rejected upgrade with a real HTTP status and the REST
+error body (`{"detail": ...}`):
+
+| status | meaning |
+|---|---|
+| 401 | missing or invalid bearer token |
+| 404 | session does not exist, or belongs to someone else |
+| 409 | session has already ended |
+
+Note: browser `WebSocket` clients cannot set request headers. If a browser
+client ever matters, an optional `hello.token` fallback can be added without
+breaking this protocol; nothing else assumes header auth.
+
+## Connection lifecycle
+
+```
+AWAITING_HELLO -> STREAMING -> DRAINING -> CLOSED
+```
+
+1. **AWAITING_HELLO** — after the upgrade, the client must send `hello` as its
+   first frame within 10 s, or the server closes with 4400.
+2. **STREAMING** — the server replies `welcome`; the client sends chunks and
+   eventually `finish`.
+3. **DRAINING** — on `finish`, the server flushes a final `ack`, ends the
+   session, sends `bye`, and closes with 1000.
+
+Every message is a JSON text frame with a `type` field, except the binary
+`chunk` frame. **Clients MUST ignore server events whose `type` they do not
+recognise** — that is how new effect events arrive without a version bump.
+
+## Client → server
+
+### `hello` (text)
+
+```json
+{
+  "type": "hello",
+  "version": 1,
+  "defaults": {
+    "content_type": "audio/wav",
+    "codec": "pcm_s16le",
+    "sample_rate_hz": 16000,
+    "channels": 1
+  },
+  "effects": []
+}
+```
+
+`defaults` (all optional) apply to every chunk; a chunk may override
+`content_type` only. `effects` is reserved for requesting server-side effects;
+no effects exist yet, and the server echoes the enabled set in `welcome`.
+Credentials do not belong here. A `version` the server does not speak closes
+the socket with 4400.
+
+### `chunk` (binary)
+
+```
++----------------------+------------------+------------------+
+| header length (u32,  | ChunkHeader JSON | audio payload    |
+| big-endian, 4 bytes) | (header length   | (rest of message)|
+|                      |  bytes of UTF-8) |                  |
++----------------------+------------------+------------------+
+```
+
+One message per chunk — atomic by construction, nothing to pair across frames.
+The payload must be a complete, independently decodable audio object (a short
+WAV/Opus/WebM file, not a slice of a longer bitstream) and must not be empty.
+
+`ChunkHeader` fields:
+
+| field | required | meaning |
+|---|---|---|
+| `sequence` | yes | client-assigned, ≥ 0; consecutive from `welcome.next_sequence` |
+| `captured_at` | no | ISO 8601 capture timestamp |
+| `duration_ms` | no | payload duration |
+| `content_type` | no | overrides the hello default for this chunk |
+| `checksum_sha256` | no | hex; the server verifies and rejects a mismatch |
+| `metadata` | no | JSON object, stored on the segment |
+
+### `finish` (text)
+
+```json
+{"type": "finish", "ended_at": null}
+```
+
+Ends the session (`ended_at` defaults to now), triggers the final `ack` and
+`bye`, and closes with 1000. Closing the socket without `finish` leaves the
+session open for a resumed connection — see *Disconnects* below.
+
+## Server → client
+
+### `welcome`
+
+```json
+{
+  "type": "welcome",
+  "version": 1,
+  "session_id": "…",
+  "next_sequence": 0,
+  "ack_window": {"chunks": 10, "seconds": 2.0},
+  "limits": {"max_chunk_bytes": 8388608},
+  "effects": []
+}
+```
+
+`next_sequence` is one past the highest sequence already stored — 0 for a
+fresh session, the resume point after a reconnect.
+
+### `ack`
+
+```json
+{"type": "ack", "through": 24, "count": 10, "bytes": 163840, "duplicates": [20]}
+```
+
+Cumulative: **every sequence ≤ `through` is durably stored** (bytes in the
+object store, row committed). Sent when `ack_window.chunks` chunks have been
+stored since the last ack, when `ack_window.seconds` have passed since the
+oldest unacknowledged stored chunk, or on drain — whichever comes first.
+`count`/`bytes` cover newly stored chunks since the previous ack; `duplicates`
+lists retransmitted sequences that were already stored (also durable). A
+`through` of -1 means nothing is stored yet.
+
+### `error`
+
+```json
+{"type": "error", "scope": "chunk", "code": "storage_failure", "detail": "…", "sequence": 7}
+```
+
+- `scope: "chunk"` — recoverable. That chunk was **not** stored; the client may
+  retransmit it at any time, including out of order. `through` will not pass a
+  failed sequence until a retransmit lands.
+- `scope: "session"` — fatal; followed by a close with the matching code.
+
+| code | scope | meaning |
+|---|---|---|
+| `bad_header` | chunk | malformed binary envelope, header JSON, or empty payload |
+| `chunk_too_large` | chunk | payload exceeds `limits.max_chunk_bytes` |
+| `checksum_mismatch` | chunk | payload does not match `checksum_sha256` |
+| `storage_failure` | chunk | store write failed; retransmit |
+| `session_ended` | session | session was ended (REST or sweeper) mid-stream |
+| `protocol_error` | session | unparseable text frame, or a second `hello` |
+| `internal` | session | unexpected server failure |
+
+### `bye`
+
+```json
+{"type": "bye", "reason": "finished", "through": 24}
+```
+
+The last event before a server-initiated close. `reason` is `finished`
+(after `finish`), `idle` (no traffic for the idle timeout; session stays
+open), or `shutdown` (server going away; reconnect and resume).
+
+## Close codes
+
+| code | meaning |
+|---|---|
+| 1000 | normal close (after `bye`) |
+| 1001 | server going away (drain attempted) |
+| 4400 | protocol error: hello missing/late/invalid, malformed text frame |
+| 4409 | session ended mid-stream |
+| 4500 | internal error |
+
+## Disconnects, resume, and automatic session close
+
+An abrupt disconnect (crash, network loss, idle close) does **not** end the
+session. To resume, the client reconnects to the same endpoint and retransmits
+every chunk above the last `ack.through` it saw. Retransmits of chunks that
+did land are deduplicated by the server's `(session, sequence)` uniqueness and
+reported in `ack.duplicates` — the database is the source of truth, no
+connection state survives on the server.
+
+Sessions do not stay open forever: activity (attach, every stored chunk)
+heartbeats the session, and a server-side sweeper automatically ends any open
+session with no activity for `API_SESSION_STALE_SECONDS` (default 300 s).
+Reconnecting after that is a 409, and a new session must be created. The
+sweeper is also why a well-behaved client sends `finish`: it closes the
+session at the true end of recording rather than a sweep interval later.
+
+## Limits and configuration
+
+All server-side, env-configurable (`api/config.py`), advertised in `welcome`
+where the client needs them:
+
+| variable | default | |
+|---|---|---|
+| `API_STREAM_MAX_CHUNK_BYTES` | 8388608 | per-chunk payload cap; stay well under uvicorn's 16 MiB frame limit |
+| `API_STREAM_ACK_WINDOW_CHUNKS` | 10 | ack every N stored chunks |
+| `API_STREAM_ACK_WINDOW_SECONDS` | 2.0 | …or T seconds after the oldest unacked chunk |
+| `API_STREAM_HELLO_TIMEOUT_SECONDS` | 10 | AWAITING_HELLO deadline |
+| `API_STREAM_IDLE_TIMEOUT_SECONDS` | 300 | close idle sockets (`bye reason=idle`) |
+| `API_SESSION_STALE_SECONDS` | 300 | auto-end sessions with no activity |
+| `API_SESSION_SWEEP_INTERVAL_SECONDS` | 60 | sweeper cadence |
+
+## Example session
+
+```
+C  (upgrade with Authorization: Bearer …)
+C→ {"type": "hello", "version": 1, "defaults": {"content_type": "audio/wav"}}
+S→ {"type": "welcome", "version": 1, "session_id": "…", "next_sequence": 0,
+    "ack_window": {"chunks": 10, "seconds": 2.0},
+    "limits": {"max_chunk_bytes": 8388608}, "effects": []}
+C→ [chunk seq=0] [chunk seq=1] … [chunk seq=9]
+S→ {"type": "ack", "through": 9, "count": 10, "bytes": 64420}
+C→ [chunk seq=10] [chunk seq=11]
+S→ {"type": "ack", "through": 11, "count": 2, "bytes": 12884}     (timer fired)
+C→ {"type": "finish"}
+S→ {"type": "bye", "reason": "finished", "through": 11}
+S  close 1000
+```
+
+## Extending with effects
+
+Effects are server-side consumers of the chunk stream that publish their own
+event types (`transcript`, `vad`, …) onto the same socket. The contract that
+keeps them compatible:
+
+- new event types appear without a `version` bump; old clients ignore them;
+- effect events may reference `sequence` values or ranges, and may arrive
+  *after* the `ack` covering those chunks;
+- `hello.effects` requests effects by name, `welcome.effects` confirms the
+  enabled set (both empty today).
+
+Server-side, an effect is a task that consumes stored chunks and publishes to
+the connection's outbox (`api/routes/stream.py`), which already serializes all
+writers onto the socket.

@@ -57,6 +57,33 @@ class SessionsRepo(BaseRepo):
         sql += " ORDER BY started_at DESC LIMIT %s OFFSET %s"
         return await self._fetch_all(RecordingSession, sql, (user_id, limit, offset))
 
+    async def touch(self, session_id: UUID) -> bool:
+        """Record activity on an open session, keeping the sweeper away.
+
+        False when the session is missing or has ended; ingest paths treat that
+        as "stop writing". The ``updated_at`` bump itself comes from the table's
+        BEFORE UPDATE trigger.
+        """
+        return await self._execute(
+            "UPDATE recording_sessions SET updated_at = now() WHERE id = %s AND ended_at IS NULL",
+            (session_id,),
+        ) > 0
+
+    async def end_stale(self, older_than_seconds: float) -> int:
+        """End every open session with no activity since the cutoff.
+
+        Idempotent; concurrent sweepers in other workers race harmlessly.
+        Returns the number of sessions ended.
+        """
+        return await self._execute(
+            """
+                UPDATE recording_sessions SET ended_at = now()
+                WHERE ended_at IS NULL
+                  AND updated_at < now() - make_interval(secs => %s)
+            """,
+            (older_than_seconds,),
+        )
+
     async def end(self, session_id: UUID, ended_at: datetime | None = None) -> RecordingSession:
         """Close a session. Re-ending one moves the timestamp."""
         session = await self._fetch_one(

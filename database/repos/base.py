@@ -11,12 +11,10 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row, tuple_row
 from pydantic import BaseModel
 
-M = TypeVar("M", bound=BaseModel)
-
 Params = Sequence[Any] | None
 
 
-class BaseRepo:
+class BaseRepo[M: BaseModel]:
     def __init__(self, conn: AsyncConnection) -> None:
         self._conn = conn
 

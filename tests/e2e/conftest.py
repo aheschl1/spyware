@@ -69,12 +69,25 @@ def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, st
         "STORAGE_BUCKET": TEST_BUCKET,
         "STORAGE_REGION": "us-east-1",
         "STORAGE_PRESIGN_EXPIRY_SECONDS": "3600",
+        # Small streaming windows so websocket tests see acks quickly, and a
+        # chunk cap small enough to exercise without allocating megabytes.
+        "API_STREAM_MAX_CHUNK_BYTES": "262144",
+        "API_STREAM_ACK_WINDOW_CHUNKS": "5",
+        "API_STREAM_ACK_WINDOW_SECONDS": "0.5",
+        "API_STREAM_HELLO_TIMEOUT_SECONDS": "5",
+        "API_STREAM_IDLE_TIMEOUT_SECONDS": "30",
+        "API_SESSION_STALE_SECONDS": "300",
+        # Effectively parks the server's sweeper so test_stream can drive
+        # end_stale deterministically.
+        "API_SESSION_SWEEP_INTERVAL_SECONDS": "3600",
     }
     os.environ.update(env)
 
+    from api.config import get_settings as api_settings
     from database.config import get_settings as db_settings
     from storage.config import get_settings as storage_settings
 
+    api_settings.cache_clear()
     db_settings.cache_clear()
     storage_settings.cache_clear()
     return env

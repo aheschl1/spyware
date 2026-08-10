@@ -1,4 +1,4 @@
-"""Response models for recording sessions."""
+"""Request and response models for recording sessions."""
 
 from datetime import datetime
 from typing import Any
@@ -7,6 +7,19 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from database.schema.sessions import RecordingSession
+
+
+class SessionCreateRequest(BaseModel):
+    """Body for starting a session; the owner comes from the bearer token."""
+
+    model_config = ConfigDict(frozen=True)
+
+    device: str | None = None
+    label: str | None = None
+    started_at: datetime | None = Field(
+        default=None, description="Defaults to the moment of creation."
+    )
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionRead(BaseModel):

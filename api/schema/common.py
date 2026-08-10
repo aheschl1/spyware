@@ -1,6 +1,6 @@
 """Response shapes shared by every route."""
 
-from typing import Annotated, Sequence, TypeVar
+from typing import Annotated, Sequence, Type, TypeVar
 
 from fastapi import Query
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,12 +35,12 @@ class Page[T](BaseModel):
     has_more: bool = Field(description="True when more rows exist past this slice.")
 
     @classmethod
-    def build(cls, rows: Sequence, params: PageParams, convert) -> "Page[T]":
+    def build(cls, rows: Sequence, params: PageParams, model) -> "Page[T]":
         """Trim the extra probe row and map the rest into response models."""
         has_more = len(rows) > params.limit
         visible = rows[: params.limit]
         return cls(
-            items=[convert(row) for row in visible],
+            items=[model(row) for row in visible],
             limit=params.limit,
             offset=params.offset,
             has_more=has_more,

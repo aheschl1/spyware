@@ -24,3 +24,20 @@ class DuplicateEmailError(DatabaseError):
 
 class InvalidTokenError(DatabaseError):
     """The supplied token is unknown, expired, or revoked."""
+
+
+class DuplicateSequenceError(DatabaseError):
+    """A segment with this (session, sequence) pair is already stored."""
+
+    def __init__(self, session_id: object, sequence: int) -> None:
+        super().__init__(f"session {session_id} already holds sequence {sequence}")
+        self.session_id = session_id
+        self.sequence = sequence
+
+
+class SessionEndedError(DatabaseError):
+    """The session has ended and accepts no further segments."""
+
+    def __init__(self, session_id: object) -> None:
+        super().__init__(f"recording session {session_id} has ended")
+        self.session_id = session_id
