@@ -54,23 +54,54 @@ class TokensRepo(BaseRepo):
             (hash_token(token),),
         )
 
+    async def resolve_user(self, token: str) -> User | None:
+        """Resolve a live token to its active owner. Read-only: no row lock held.
+
+        This is the authentication decision on its own; :meth:`touch_last_used`
+        records the use separately, so the ``last_used_at`` write's row lock is
+        never held for the length of the caller's (possibly long-lived) request.
+        """
+        sql = f"""
+            SELECT {", ".join("u." + column for column in USER_COLUMNS.split(", "))}
+            FROM auth_tokens t JOIN users u ON u.id = t.user_id
+            WHERE t.token_hash = %s
+              AND t.revoked_at IS NULL
+              AND (t.expires_at IS NULL OR t.expires_at > now())
+              AND u.is_active
+        """
+        return await self._fetch_one(User, sql, (hash_token(token),))
+
+    async def touch_last_used(self, token: str, min_interval_seconds: float = 60.0) -> bool:
+        """Stamp a live token's ``last_used_at``, at most once per interval.
+
+        Deliberately decoupled from :meth:`resolve_user`: the write (and its
+        brief row lock) is a statement of its own, and the interval throttle
+        stops a busy token from writing -- and taking that lock -- on every
+        single request. Returns whether a row was updated.
+        """
+        affected = await self._execute(
+            f"""
+                UPDATE auth_tokens SET last_used_at = now()
+                WHERE token_hash = %s AND {LIVE}
+                  AND (last_used_at IS NULL
+                       OR last_used_at < now() - make_interval(secs => %s))
+            """,
+            (hash_token(token), min_interval_seconds),
+        )
+        return affected > 0
+
     async def authenticate(self, token: str) -> User | None:
         """Resolve a token to its (active) owner, stamping ``last_used_at``.
 
-        One round trip: the data-modifying CTE touches the token row and the
-        outer SELECT returns the owner.
+        A convenience combiner over :meth:`resolve_user` and
+        :meth:`touch_last_used`. The request path calls those two directly on a
+        short-lived connection (see ``api.deps.authenticate_bearer``) so the
+        stamp never rides along in a long request transaction.
         """
-        sql = f"""
-            WITH touched AS (
-                UPDATE auth_tokens SET last_used_at = now()
-                WHERE token_hash = %s AND {LIVE}
-                RETURNING user_id
-            )
-            SELECT {", ".join("u." + column for column in USER_COLUMNS.split(", "))}
-            FROM users u JOIN touched t ON t.user_id = u.id
-            WHERE u.is_active
-        """
-        return await self._fetch_one(User, sql, (hash_token(token),))
+        user = await self.resolve_user(token)
+        if user is not None:
+            await self.touch_last_used(token, min_interval_seconds=0.0)
+        return user
 
     async def get(self, token_id: UUID) -> AuthToken | None:
         return await self._fetch_one(

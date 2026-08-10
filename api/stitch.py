@@ -23,7 +23,7 @@ class NotStitchable(Exception):
     """The session's segments cannot form one continuous WAV."""
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class Piece:
     """One segment's data chunk, placed in the stitched file."""
 
@@ -36,7 +36,7 @@ class Piece:
         return self.start + self.data_length - 1
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class StitchPlan:
     pieces: tuple[Piece, ...]
     total_size: int  # header plus every piece

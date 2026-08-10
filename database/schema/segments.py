@@ -73,3 +73,19 @@ class UserUsage(BaseModel):
 
     segments: int
     total_bytes: int
+
+
+class SegmentSetFingerprint(BaseModel):
+    """A cheap change-token for one session's segment set.
+
+    Segments are only appended or deleted, never mutated, so any change moves at
+    least one of these fields. Equal fingerprints therefore mean the stitched
+    audio is byte-for-byte identical and its plan and ETag can be reused. Read
+    with a single aggregate query -- no rows cross the wire.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    count: int
+    max_sequence: int
+    total_bytes: int

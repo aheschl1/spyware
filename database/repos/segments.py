@@ -10,7 +10,12 @@ from psycopg.types.json import Jsonb
 
 from database.exceptions import DuplicateSequenceError, NotFoundError
 from database.repos.base import BaseRepo
-from database.schema.segments import AudioSegment, SegmentCreate, UserUsage
+from database.schema.segments import (
+    AudioSegment,
+    SegmentCreate,
+    SegmentSetFingerprint,
+    UserUsage,
+)
 
 COLUMNS = (
     "id, session_id, user_id, sequence, ingested_at, captured_at, offset_ms, duration_ms, "
@@ -124,6 +129,25 @@ class SegmentsRepo(BaseRepo):
     async def delete(self, segment_id: UUID) -> bool:
         """Delete the row only. The blob is removed by ``services.audio``."""
         return await self._execute("DELETE FROM audio_segments WHERE id = %s", (segment_id,)) > 0
+
+    async def stitch_fingerprint(self, session_id: UUID) -> SegmentSetFingerprint:
+        """A cheap change-token for a session's segment set.
+
+        One aggregate row rather than every segment: enough to decide whether a
+        cached stitch plan is still valid without loading the rows behind it.
+        """
+        fingerprint = await self._fetch_one(
+            SegmentSetFingerprint,
+            """
+                SELECT COUNT(*) AS count,
+                       COALESCE(MAX(sequence), -1) AS max_sequence,
+                       COALESCE(SUM(byte_size), 0) AS total_bytes
+                FROM audio_segments WHERE session_id = %s
+            """,
+            (session_id,),
+        )
+        assert fingerprint is not None  # aggregate without GROUP BY always returns a row
+        return fingerprint
 
     async def usage_for_user(self, user_id: UUID) -> UserUsage:
         usage = await self._fetch_one(

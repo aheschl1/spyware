@@ -43,21 +43,38 @@ Pipe = Annotated[DatabasePipe, Depends(get_pipe)]
 async def authenticate_token(pipe: DatabasePipe, token: str | None) -> User | None:
     """Resolve a bearer token to its owner; None when missing or invalid.
 
-    ``tokens.authenticate`` rejects unknown, revoked and expired tokens and
-    inactive users, and stamps ``last_used_at``. Shared with the websocket
-    upgrade check, which cannot use ``HTTPBearer``/``HTTPException``.
+    ``resolve_user`` rejects unknown, revoked and expired tokens and inactive
+    users; ``touch_last_used`` records the use as a separate, throttled write so
+    its row lock is not held for the caller's transaction. Shared with the
+    websocket upgrade check, which cannot use ``HTTPBearer``/``HTTPException``.
     """
     if not token:
         return None
-    return await pipe.tokens.authenticate(token)
+    user = await pipe.tokens.resolve_user(token)
+    if user is not None:
+        await pipe.tokens.touch_last_used(token)
+    return user
+
+
+async def authenticate_bearer(token: str | None) -> User | None:
+    """Authenticate on a dedicated, immediately-committed transaction.
+
+    Auth deliberately does not ride on the request's ``get_pipe`` transaction:
+    that one stays open until the response finishes -- for a streaming audio
+    response, until the last byte is sent -- and holding the ``last_used_at``
+    row lock (and a pooled connection) for that long serializes every other
+    request from the same token. Here the lock and connection are released the
+    moment auth returns.
+    """
+    async with DatabasePipe() as pipe:
+        return await authenticate_token(pipe, token)
 
 
 async def get_current_user(
-    pipe: Pipe,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> User:
     """Resolve the bearer token to its owner, or raise 401."""
-    user = await authenticate_token(pipe, credentials.credentials if credentials else None)
+    user = await authenticate_bearer(credentials.credentials if credentials else None)
     if user is None:
         raise _UNAUTHENTICATED
     return user
@@ -67,12 +84,17 @@ CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 async def get_owned_session(
-    pipe: Pipe,
     user: CurrentUser,
     session_id: Annotated[UUID, Path(description="A recording session belonging to you.")],
 ) -> RecordingSession:
-    """Load a session the caller owns. Another user's session raises 404."""
-    session = await pipe.sessions.get(session_id)
+    """Load a session the caller owns. Another user's session raises 404.
+
+    Resolved on its own short-lived connection rather than the request's
+    ``get_pipe``: the returned model is detached, so streaming routes that only
+    need the row hold no pooled connection while their response is sent.
+    """
+    async with DatabasePipe() as pipe:
+        session = await pipe.sessions.get(session_id)
     if session is None or session.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="recording session not found"
@@ -84,12 +106,16 @@ OwnedSession = Annotated[RecordingSession, Depends(get_owned_session)]
 
 
 async def get_owned_segment(
-    pipe: Pipe,
     user: CurrentUser,
     segment_id: Annotated[UUID, Path(description="An audio segment belonging to you.")],
 ) -> AudioSegment:
-    """Load a segment the caller owns. Another user's segment raises 404."""
-    segment = await pipe.segments.get(segment_id)
+    """Load a segment the caller owns. Another user's segment raises 404.
+
+    On its own short-lived connection (see :func:`get_owned_session`): the
+    audio-download route holds no pooled connection while it streams.
+    """
+    async with DatabasePipe() as pipe:
+        segment = await pipe.segments.get(segment_id)
     if segment is None or segment.user_id != user.id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="audio segment not found"
