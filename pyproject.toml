@@ -1,0 +1,36 @@
+[project]
+name = "audio-pipeline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "aioboto3>=15.5.0",
+    "alembic>=1.19.1",
+    "argon2-cffi>=25.1.0",
+    "click>=8.4.2",
+    "fastapi>=0.141.1",
+    "psycopg[binary,pool]>=3.3.4",
+    "pydantic-settings>=2.15.0",
+    "pydantic[email]>=2.13.4",
+    "uvicorn[standard]>=0.52.1",
+]
+
+[project.scripts]
+audio-pipeline = "cli.main:cli"
+audio-pipeline-api = "api.main:serve"
+
+[tool.pytest.ini_options]
+# The project has no build backend, so it is not installed into the venv.
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "testcontainers[minio,postgres]>=4.15.0",
+]
