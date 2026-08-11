@@ -10,6 +10,7 @@ row carries the text.
 
 import json
 from collections.abc import Sequence
+import logging
 from typing import Any
 
 from database.pipe import DatabasePipe
@@ -44,6 +45,7 @@ class TranscribePipeline(Pipeline):
             spans = await TranscribeQueries(pipe.connection).spans_without_jobs(
                 self.name, _SOURCE_PIPELINE, limit
             )
+        logging.debug(f"pipeline {self.name} found {len(spans)} jobs")
         return tuple(
             JobCreate(
                 pipeline=self.name,

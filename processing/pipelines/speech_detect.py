@@ -37,6 +37,7 @@ class SpeechDetectPipeline(Pipeline):
             sessions = await PipelineDiscovery(pipe.connection).ended_sessions_without(
                 self.name, limit
             )
+        logging.debug(f"pipeline {self.name} found {len(sessions)} jobs")
         return tuple(
             JobCreate(
                 pipeline=self.name,
