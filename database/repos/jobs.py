@@ -188,7 +188,7 @@ class JobsRepo(BaseRepo):
             """
                 UPDATE processing_jobs
                 SET status = 'queued', run_at = now(), claimed_at = NULL, claimed_by = NULL
-                WHERE pipeline = %s AND status = 'running'
+                WHERE pipeline = %s AND ( status = 'running' OR status = 'dead')
             """,
             (pipeline,),
         )
