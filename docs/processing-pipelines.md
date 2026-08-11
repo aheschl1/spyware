@@ -145,34 +145,51 @@ each tier discovers its own input):
    the session's PCM through a VAD backend (`processing/vad.py`: `silero` via
    pysilero-vad on CPU, or the deterministic `energy` threshold the tests
    use), and records one `speech-span` artifact per merged/padded span plus a
-   `speech-map` summary. Unprocessable sessions (non-WAV, non-16k-mono, no
-   audio) get an empty map with a `skipped` reason — never a dead job.
-2. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
-   `speech-span` artifacts with no transcribe job (anti-join on
-   `processing_jobs.artifact_id`), renders each span from the timeline, sends
-   it to the transcription service, and records a `transcript` artifact on
-   the same span (text preview in metadata, full response as a blob).
-3. **`diarize`** (`processing/pipelines/diarize.py`) — consumes each
+   `speech-map` summary. The threshold is deliberately low (0.15): spans are
+   a **coarse, high-recall activity gate** that decides what the diarizer
+   sees — they do not gate ASR. (Measured: at 0.5 silero covered 4% of a far
+   speaker's talk on a glasses mic; pyannote's own segmentation covers it
+   all, so precision here would silence one side of a conversation.)
+   Unprocessable sessions (non-WAV, non-16k-mono, no audio) get an empty map
+   with a `skipped` reason — never a dead job. Republication replaces the
+   previous span set in one transaction.
+2. **`diarize`** (`processing/pipelines/diarize.py`) — consumes each
    session's `speech-map` (one job per session), but the diarizer never sees
    a whole session: spans re-merge into *blocks* (contiguous speech, gap ≤
    30 s joins, ≤ 30 min, closed at span boundaries) because label consistency
-   needs long context — the 30 s span cap is ASR's constraint, not
-   diarization's. Emits `speaker-turn` artifacts with **block-namespaced**
-   labels (`b{start}:SPEAKER_00` — local identity only; global identity is
-   the future clustering tier's job) plus one `speaker-embedding` artifact
-   per (block, speaker) whose vector lives in a blob under
-   `diarize/sessions/{id}/embeddings/`. Publication is atomic:
-   delete-previous + insert-all + `diarize-map` in one transaction, so the
-   map's presence is the completion marker and retries are idempotent.
-   Service seam: `processing/diarizer.py` → the diar_pyannote container
+   needs long context. Emits `speaker-turn` artifacts with
+   **block-namespaced** labels (`b{start}:SPEAKER_00` — local identity only;
+   global identity is the future clustering tier's job), **`utterance`**
+   artifacts — same-speaker turns merged when the gap is ≤ 1.5 s, capped at
+   the ASR input window (30 s), the units the transcribe tier consumes — and
+   one `speaker-embedding` artifact per (block, speaker) whose vector lives
+   in the `speaker_embeddings` table (pgvector, cascade-deleted with its
+   artifact row), queryable with distance operators for the clustering tier.
+   Publication is atomic: delete-previous + insert-all + `diarize-map` in one
+   transaction — vectors included — **and it deletes the session's
+   transcripts too**: they derive from utterances that no longer exist, and
+   this tier owns invalidating them. The map's presence is the completion
+   marker and retries are idempotent. A malformed embedding from the service
+   is dropped with a warning (turns are the load-bearing output). Service
+   seam: `processing/diarizer.py` → the diar_pyannote container
    (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-3.1.
+3. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
+   `utterance` artifacts with no transcribe job (anti-join on
+   `processing_jobs.artifact_id`), renders each from the timeline, sends it
+   to the transcription service, and records a `transcript` artifact on the
+   same range — full text, speaker label, and model in metadata; **no blob**
+   (utterances are short, the row is the store). When diarize republishes,
+   utterances get new ids, so the anti-join re-enqueues them and queued jobs
+   whose utterance vanished skip themselves. Transcripts therefore wait on
+   the whole session's diarization — the cost of gating ASR on the detector
+   that actually hears every speaker.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
 (`openai` protocol — our `asr_canary` container serving nvidia/canary-qwen-2.5b,
 or speaches, or a hosted endpoint) or a Replicate cog wrapper (`cog`).
 Swapping models/backends is env-only. Canary-qwen is English-only and emits
-no word timestamps — timing granularity is the VAD span; a forced-alignment
+no word timestamps — timing granularity is the utterance; a forced-alignment
 tier can refine it later on the same artifact model.
 
 ## Callbacks and chaining

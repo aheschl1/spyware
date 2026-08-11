@@ -36,8 +36,11 @@ async def _seed(session_id) -> dict[str, str]:
             ArtifactCreate(
                 pipeline="transcribe", kind="transcript", session_id=session_id,
                 start_ms=1_000, end_ms=4_000,
-                links={"speech_span": str(span_a.id)},
-                metadata={"text": "hello there", "chars": 11, "model": "stub"},
+                links={"utterance": str(span_a.id)},
+                metadata={
+                    "text": "hello there", "chars": 11, "model": "stub",
+                    "speaker": "b1000:SPEAKER_00",
+                },
             )
         )
     return {"span_a": str(span_a.id), "span_b": str(span_b.id), "transcript": str(transcript.id)}
@@ -69,7 +72,8 @@ async def test_timeline_orders_and_pages_events(
     # The opening frame carries the device wall-clock time posted at creation.
     assert datetime.fromisoformat(items[0]["started_at"]) == datetime.fromisoformat(DEVICE_TIME)
     assert items[1]["artifact_id"] == ids["span_a"] and items[1]["confidence"] == 0.9
-    assert items[2]["text"] == "hello there" and items[2]["truncated"] is False
+    assert items[2]["text"] == "hello there"
+    assert items[2]["speaker"] == "b1000:SPEAKER_00"
     assert items[2]["end_ms"] == 4_000 and items[2]["artifact_id"] == ids["transcript"]
 
     # Offset paging over events: pages of two concatenate to the full list.

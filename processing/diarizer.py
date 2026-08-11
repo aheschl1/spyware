@@ -7,12 +7,15 @@ container implements it; anything else that speaks the same JSON can be
 swapped in via ``PROCESSING_DIARIZER_BASE_URL``.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from processing.config import ProcessingSettings
+
+logger = logging.getLogger(__name__)
 
 
 class DiarizerError(Exception):
@@ -79,10 +82,15 @@ def parse_response(body: Any) -> DiarizationResult:
         raise DiarizerError(f"malformed embeddings in diarizer response: {raw_embeddings!r}")
     embeddings: dict[str, list[float]] = {}
     for speaker, vector in raw_embeddings.items():
+        # A malformed vector (pyannote can emit NaN-laden embeddings for a
+        # speaker with almost no clean speech) is not worth retrying to
+        # death over: the turns are the load-bearing output — this tier
+        # gates transcription — so drop just that speaker's embedding.
         if not isinstance(vector, list) or not all(
             isinstance(value, (int, float)) for value in vector
         ):
-            raise DiarizerError(f"malformed embedding for {speaker!r}")
+            logger.warning("dropping malformed embedding for %r", speaker)
+            continue
         embeddings[str(speaker)] = [float(value) for value in vector]
 
     return DiarizationResult(

@@ -64,16 +64,15 @@ def _transcript_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
     if artifact.start_ms is None or artifact.end_ms is None:
         return
     text = artifact.metadata.get("text", "")
-    chars = artifact.metadata.get("chars", len(text))
     yield TranscriptEvent(
         at_ms=artifact.start_ms,
         artifact_id=artifact.id,
         start_ms=artifact.start_ms,
         end_ms=artifact.end_ms,
         text=text,
-        chars=chars,
-        truncated=chars > len(text),
+        chars=artifact.metadata.get("chars", len(text)),
         model=artifact.metadata.get("model"),
+        speaker=artifact.metadata.get("speaker"),
     )
 
 

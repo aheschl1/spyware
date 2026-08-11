@@ -51,13 +51,15 @@ def _span(start_ms: int, end_ms: int, confidence: float = 0.9) -> PipelineArtifa
     )
 
 
-def _transcript(start_ms: int, end_ms: int, text: str = "hello") -> PipelineArtifact:
+def _transcript(
+    start_ms: int, end_ms: int, text: str = "hello", speaker: str | None = "b0:SPEAKER_00"
+) -> PipelineArtifact:
     return _artifact(
         "transcribe",
         "transcript",
         start_ms,
         end_ms,
-        {"text": text, "chars": len(text), "model": "stt-1"},
+        {"text": text, "chars": len(text), "model": "stt-1", "speaker": speaker},
     )
 
 
@@ -124,18 +126,21 @@ def test_orphan_transcript_still_appears() -> None:
     assert events[1].text == "alone" and events[1].end_ms == 4_000
 
 
-def test_transcript_truncation_and_missing_metadata() -> None:
-    preview = _artifact(
-        "transcribe", "transcript", 0, 1_000, {"text": "x" * 500, "chars": 1_200}
+def test_transcript_speaker_and_missing_metadata() -> None:
+    attributed = _artifact(
+        "transcribe",
+        "transcript",
+        0,
+        1_000,
+        {"text": "hi", "chars": 2, "speaker": "b0:SPEAKER_01"},
     )
-    complete = _artifact("transcribe", "transcript", 1_000, 2_000, {"text": "hi", "chars": 2})
     bare = _artifact("transcribe", "transcript", 2_000, 3_000)
 
-    truncated, whole, empty = assemble(_session(), [preview, complete, bare])[1:]
+    spoken, empty = assemble(_session(), [attributed, bare])[1:]
 
-    assert truncated.truncated is True and truncated.chars == 1_200
-    assert whole.truncated is False and whole.model is None
-    assert empty.text == "" and empty.chars == 0 and empty.truncated is False
+    assert spoken.speaker == "b0:SPEAKER_01" and spoken.chars == 2
+    assert empty.text == "" and empty.chars == 0 and empty.speaker is None
+    assert empty.model is None
 
 
 def test_missing_confidence_and_null_spans_are_tolerated() -> None:

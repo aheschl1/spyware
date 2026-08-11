@@ -34,7 +34,11 @@ class ProcessingSettings(BaseSettings):
     # Speech detection (the VAD tier) — see processing/vad.py for the span
     # assembly these tune.
     vad_backend: str = "silero"  # or "energy": deterministic RMS threshold
-    vad_threshold: float = 0.5
+    # Deliberately low: spans are a coarse, high-recall activity gate that
+    # feeds the diarize tier's block assembly — no longer the ASR gate. On a
+    # glasses mic silero scores far (non-wearer) speakers low, so precision
+    # here would silence one side of every conversation.
+    vad_threshold: float = 0.15
     vad_min_speech_ms: int = 250
     # Wide enough that ordinary conversational pauses don't split a span;
     # only a real lull does. Long pauses SHOULD split: silence wastes GPU
@@ -63,6 +67,11 @@ class ProcessingSettings(BaseSettings):
     diarize_block_merge_gap_ms: int = 30_000
     diarize_max_block_ms: int = 1_800_000
     diarize_min_turn_ms: int = 300
+    # Utterances: same-speaker turns merged into the ASR units the transcribe
+    # tier consumes. The cap is the transcription model's input window, same
+    # rationale as vad_max_span_ms.
+    diarize_utterance_merge_gap_ms: int = 1_500
+    diarize_max_utterance_ms: int = 30_000
 
 
 @lru_cache(maxsize=1)

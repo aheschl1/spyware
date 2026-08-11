@@ -1,14 +1,18 @@
-"""Tier 2: transcribe every detected speech span.
+"""Tier: transcribe every diarized utterance.
 
-Consumes ``speech-span`` artifacts (the speech-detect tier's output), renders
-each span from the session timeline, sends it to the transcription service
-(processing/transcriber.py — model and protocol are environment-swappable),
-and records a ``transcript`` artifact on the same span. The full service
-response is persisted as a blob under this pipeline's prefix; the artifact
-row carries the text.
+Consumes ``utterance`` artifacts (the diarize tier's ASR units — same-speaker
+turns merged to the model's input window), renders each from the session
+timeline, sends it to the transcription service (processing/transcriber.py —
+model and protocol are environment-swappable), and records a ``transcript``
+artifact on the same range. Transcripts live entirely in the artifact row —
+utterances are short, so the full text fits in metadata and no blob is
+written.
+
+Diarize invalidates this tier's output when it republishes a session: it
+deletes the transcripts in the same transaction that replaces the utterances,
+and the queued jobs pointing at deleted utterances skip themselves.
 """
 
-import json
 from collections.abc import Sequence
 import logging
 from typing import Any
@@ -21,13 +25,8 @@ from processing.base import Pipeline
 from processing.config import get_settings
 from processing.transcriber import Transcriber
 from services import stitch, timeline
-from storage.keys import pipeline_key
-from storage.pipe import BlobPipe
 
-_SOURCE_PIPELINE = "speech-detect"
-
-# Artifact metadata keeps the row light; longer text lives in the blob only.
-_TEXT_PREVIEW_CHARS = 500
+_SOURCE_PIPELINE = "diarize"
 
 
 class TranscribePipeline(Pipeline):
@@ -42,24 +41,34 @@ class TranscribePipeline(Pipeline):
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         async with DatabasePipe() as pipe:
-            spans = await TranscribeQueries(pipe.connection).spans_without_jobs(
+            utterances = await TranscribeQueries(pipe.connection).utterances_without_jobs(
                 self.name, _SOURCE_PIPELINE, limit
             )
-        logging.debug(f"pipeline {self.name} found {len(spans)} jobs")
+        logging.debug(f"pipeline {self.name} found {len(utterances)} jobs")
         return tuple(
             JobCreate(
                 pipeline=self.name,
-                session_id=span.session_id,
-                artifact_id=span.id,
-                payload={"start_ms": span.start_ms, "end_ms": span.end_ms},
-                dedup_key=f"{self.name}:artifact:{span.id}",
+                session_id=utterance.session_id,
+                artifact_id=utterance.id,
+                payload={
+                    "start_ms": utterance.start_ms,
+                    "end_ms": utterance.end_ms,
+                    "speaker": utterance.metadata.get("speaker"),
+                },
+                dedup_key=f"{self.name}:artifact:{utterance.id}",
             )
-            for span in spans
+            for utterance in utterances
         )
 
     async def process(self, job: Job) -> dict[str, Any]:
-        assert job.session_id is not None and job.artifact_id is not None
+        assert job.session_id is not None
+        if job.artifact_id is None:
+            # Diarize republished the session and deleted this utterance
+            # (the FK nulls artifact_id); the replacement utterance has its
+            # own job.
+            return {"skipped": "utterance deleted before transcription"}
         start_ms, end_ms = job.payload["start_ms"], job.payload["end_ms"]
+        speaker = job.payload.get("speaker")
 
         try:
             line = await timeline.load_timeline(job.session_id)
@@ -76,21 +85,13 @@ class TranscribePipeline(Pipeline):
             clip, filename=f"{job.session_id}-{start_ms}-{end_ms}.wav"
         )
 
-        key = pipeline_key(
-            self.name, job.session_id, f"transcript-{start_ms:>09d}-{end_ms:>09d}.json"
-        )
-        document = {
-            "text": result.text,
-            "start_ms": start_ms,
-            "end_ms": end_ms,
-            "model": self._settings.transcriber_model,
-            "response": result.raw,
-        }
-        async with BlobPipe() as blobs:
-            info = await blobs.put(
-                key, json.dumps(document).encode(), "application/json"
-            )
         async with DatabasePipe() as pipe:
+            # Re-check inside the insert transaction: diarize may have
+            # replaced the utterance while we were transcribing. (A commit
+            # racing diarize's delete by microseconds could still slip an
+            # orphan through; add FOR KEY SHARE here if one is ever observed.)
+            if await pipe.artifacts.get(job.artifact_id) is None:
+                return {"skipped": "utterance deleted during transcription"}
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,
@@ -98,13 +99,12 @@ class TranscribePipeline(Pipeline):
                     session_id=job.session_id,
                     start_ms=start_ms,
                     end_ms=end_ms,
-                    bucket=info.bucket,
-                    object_key=info.key,
-                    links={"speech_span": str(job.artifact_id)},
+                    links={"utterance": str(job.artifact_id)},
                     metadata={
-                        "text": result.text[:_TEXT_PREVIEW_CHARS],
+                        "text": result.text,
                         "chars": len(result.text),
                         "model": self._settings.transcriber_model,
+                        "speaker": speaker,
                     },
                 )
             )

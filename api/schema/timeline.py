@@ -48,7 +48,7 @@ class SessionEndEvent(TimelineEventBase):
 
 
 class SpeechStartEvent(ArtifactEventBase):
-    """Speech was detected starting at this moment."""
+    """Coarse audio activity begins here (high-recall VAD, not verified speech)."""
 
     type: Literal["speech-start"] = "speech-start"
     confidence: float | None = Field(
@@ -57,7 +57,7 @@ class SpeechStartEvent(ArtifactEventBase):
 
 
 class SpeechEndEvent(ArtifactEventBase):
-    """The speech span that started last ends here."""
+    """The activity span that started last ends here."""
 
     type: Literal["speech-end"] = "speech-end"
     confidence: float | None = Field(
@@ -66,15 +66,19 @@ class SpeechEndEvent(ArtifactEventBase):
 
 
 class TranscriptEvent(ArtifactEventBase):
-    """What was said over ``[start_ms, end_ms)``; positioned at the span start."""
+    """What one speaker said over ``[start_ms, end_ms)``; positioned at the start."""
 
     type: Literal["transcript"] = "transcript"
-    start_ms: int = Field(description="Start of the transcribed span, ms.")
-    end_ms: int = Field(description="End (exclusive) of the transcribed span, ms.")
-    text: str = Field(description="Transcript text; a preview when ``truncated``.")
-    chars: int = Field(description="Full transcript length in characters.")
-    truncated: bool = Field(description="True when ``text`` previews a longer transcript.")
+    start_ms: int = Field(description="Start of the transcribed utterance, ms.")
+    end_ms: int = Field(description="End (exclusive) of the transcribed utterance, ms.")
+    text: str = Field(description="Full transcript text of the utterance.")
+    chars: int = Field(description="Transcript length in characters.")
     model: str | None = Field(None, description="The transcription model that produced it.")
+    speaker: str | None = Field(
+        None,
+        description="Diarized speaker of the utterance (block-namespaced, "
+        "e.g. ``b109176:SPEAKER_00``); labels are stable within a block only.",
+    )
 
 
 type TimelineEvent = Annotated[

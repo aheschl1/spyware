@@ -21,8 +21,8 @@ PIPELINES: tuple[type[Pipeline], ...] = (
     SessionStatsPipeline,
     StatsEchoPipeline,
     SpeechDetectPipeline,
-    TranscribePipeline,
     DiarizePipeline,
+    TranscribePipeline,
 )
 
 

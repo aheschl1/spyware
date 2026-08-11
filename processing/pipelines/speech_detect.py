@@ -82,6 +82,9 @@ class SpeechDetectPipeline(Pipeline):
 
         speech_ms = sum(span.end_ms - span.start_ms for span in spans)
         async with DatabasePipe() as pipe:
+            # A requeued job (worker crash, dead-job recovery) must not append
+            # a second generation of spans: replace, like the tiers below do.
+            await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
             for span in spans:
                 await pipe.artifacts.create(
                     ArtifactCreate(
@@ -109,6 +112,7 @@ class SpeechDetectPipeline(Pipeline):
         """Record an empty speech map so the session reads as processed."""
         logger.info("speech-detect skipping session %s: %s", job.session_id, reason)
         async with DatabasePipe() as pipe:
+            await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,

@@ -38,7 +38,9 @@ SERVER_BOOT_TIMEOUT = 30.0
 
 @pytest.fixture(scope="session")
 def postgres() -> Iterator[PostgresContainer]:
-    with PostgresContainer("postgres:16") as container:
+    # The pgvector image is the official postgres:16 plus the vector
+    # extension, which migration 0006 requires — mirrors production.
+    with PostgresContainer("pgvector/pgvector:pg16") as container:
         yield container
 
 

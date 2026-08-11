@@ -61,9 +61,12 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "speech-end",
         "transcript",
     }
-    # Transcripts never leak the storage layout; text arrives via the preview.
+    # Transcripts never leak the storage layout; the full text is inline and
+    # carries its diarized speaker (no truncation — transcripts are row-only).
     assert "bucket" not in schemas["TranscriptEvent"]["properties"]
     assert "object_key" not in schemas["TranscriptEvent"]["properties"]
+    assert "speaker" in schemas["TranscriptEvent"]["properties"]
+    assert "truncated" not in schemas["TranscriptEvent"]["properties"]
 
 
 async def test_docs_render(client: httpx.AsyncClient) -> None:

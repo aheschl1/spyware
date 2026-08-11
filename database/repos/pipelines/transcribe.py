@@ -8,21 +8,23 @@ _A_COLUMNS = ", ".join(f"a.{column.strip()}" for column in _ARTIFACT_COLUMNS.spl
 
 
 class TranscribeQueries(BaseRepo):
-    async def spans_without_jobs(
+    async def utterances_without_jobs(
         self, pipeline: str, source_pipeline: str, limit: int = 100
     ) -> list[PipelineArtifact]:
-        """Speech-span artifacts this pipeline has never been enqueued for.
+        """Utterance artifacts this pipeline has never been enqueued for.
 
         Anti-joins on ``processing_jobs.artifact_id`` — a job is scoped to the
         artifact it consumes, and ``processing_jobs_artifact_idx`` serves the
         probe. The NOT EXISTS keeps discovery cheap; the dedup unique index is
-        the correctness backstop if two passes race.
+        the correctness backstop if two passes race. When diarize republishes
+        a session its utterances get new ids, so the anti-join naturally
+        re-enqueues them — re-transcription is intended, the content changed.
         """
         return await self._fetch_all(
             PipelineArtifact,
             f"""
                 SELECT {_A_COLUMNS} FROM pipeline_artifacts a
-                WHERE a.pipeline = %s AND a.kind = 'speech-span'
+                WHERE a.pipeline = %s AND a.kind = 'utterance'
                   AND NOT EXISTS (
                       SELECT 1 FROM processing_jobs j
                       WHERE j.pipeline = %s AND j.artifact_id = a.id
