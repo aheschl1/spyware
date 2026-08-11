@@ -462,6 +462,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/speakers/{speaker_id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Merge candidates, closest first
+         * @description Your other clusters in the same embedding model ranked by centroid
+         *     distance — the shortlist for healing a split voice, with the numbers
+         *     visible so a suspiciously far merge looks suspicious.
+         */
+        get: operations["list_similar_speakers_v1_speakers__speaker_id__similar_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/{speaker_id}/merge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Merge this cluster into another
+         * @description Fold the path speaker's voice-prints into the target, then delete the
+         *     path speaker; the target's centroid becomes the mean over the combined
+         *     members. A label is never lost — an unnamed survivor inherits the
+         *     merged-away cluster's name. Same-model only: pgvector's distance and
+         *     ``avg()`` error out across dimensions.
+         */
+        post: operations["merge_speaker_v1_speakers__speaker_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/speakers/{speaker_id}/transcripts": {
         parameters: {
             query?: never;
@@ -1081,6 +1127,61 @@ export interface components {
             started_at: string;
         };
         /**
+         * SimilarSpeakerRead
+         * @description A merge candidate: another cluster in the same embedding model,
+         *     with its centroid's cosine distance from the reference speaker.
+         */
+        SimilarSpeakerRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Name
+             * @description User-given label; null = unlabeled.
+             */
+            name?: string | null;
+            /**
+             * Model
+             * @description The embedding model this cluster lives in.
+             */
+            model: string;
+            /**
+             * Embeddings
+             * @description Voice-prints currently assigned to the cluster.
+             */
+            embeddings: number;
+            /**
+             * Sessions
+             * @description Distinct sessions the cluster was heard in.
+             */
+            sessions: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Distance
+             * @description Cosine distance between centroids; ~0.6 within one voice, ~0.9 between different voices.
+             */
+            distance: number;
+        };
+        /**
+         * SimilarSpeakersResponse
+         * @description Every other cluster of yours in the same model, closest first.
+         */
+        SimilarSpeakersResponse: {
+            /** Items */
+            items: components["schemas"]["SimilarSpeakerRead"][];
+        };
+        /**
          * SnippetSegment
          * @description One run of snippet text; ``match`` marks the highlighted query terms.
          */
@@ -1102,6 +1203,20 @@ export interface components {
              * @description The label to set, or null to clear it.
              */
             name: string | null;
+        };
+        /**
+         * SpeakerMergeRequest
+         * @description Body of ``POST /speakers/{id}/merge``: fold the path speaker into
+         *     this one. The survivor keeps its id (and its name, unless it has none
+         *     and the merged-away cluster does).
+         */
+        SpeakerMergeRequest: {
+            /**
+             * Into Speaker Id
+             * Format: uuid
+             * @description The cluster that survives the merge.
+             */
+            into_speaker_id: string;
         };
         /**
          * SpeakerRead
@@ -2597,6 +2712,110 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SpeakerLabelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeakerRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_similar_speakers_v1_speakers__speaker_id__similar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A speaker cluster belonging to you. */
+                speaker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimilarSpeakersResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    merge_speaker_v1_speakers__speaker_id__merge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A speaker cluster belonging to you. */
+                speaker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpeakerMergeRequest"];
             };
         };
         responses: {

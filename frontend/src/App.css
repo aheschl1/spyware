@@ -877,6 +877,93 @@ button.row:hover,
   flex: 1;
 }
 
+/* Merge popover: distance-ranked candidates, then an inline confirm. */
+
+.merge-pop {
+  min-width: 280px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.merge-candidate {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.merge-candidate:hover {
+  background: var(--accent-soft);
+}
+
+.merge-candidate .avatar {
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+}
+
+.merge-candidate-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.distance {
+  flex: none;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.distance.far {
+  color: var(--red);
+}
+
+.merge-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.merge-warning {
+  color: var(--red);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.merge-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.merge-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+
+.merge-hint span {
+  flex: 1;
+}
+
 /* ------------- small screens */
 
 @media (max-width: 640px) {

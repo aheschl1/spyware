@@ -6,12 +6,15 @@ mutation — membership is derived data owned by the pipeline (and rebuilt by
 by-name transcript route unions every cluster sharing the name.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, status
 
 from api.deps import CurrentUser, OwnedSpeaker, Paging, Pipe
 from api.schema.common import Page
 from api.schema.speakers import (
+    SimilarSpeakerRead,
+    SimilarSpeakersResponse,
     SpeakerLabelRequest,
+    SpeakerMergeRequest,
     SpeakerRead,
     SpeakerTranscriptRead,
 )
@@ -65,6 +68,51 @@ async def label_speaker(
     survives re-clustering: a labeled cluster is an identity anchor."""
     await pipe.speakers.set_name(speaker.id, body.name)
     return await get_speaker(speaker, pipe)
+
+
+@router.get("/{speaker_id}/similar", summary="Merge candidates, closest first")
+async def list_similar_speakers(
+    speaker: OwnedSpeaker, pipe: Pipe
+) -> SimilarSpeakersResponse:
+    """Your other clusters in the same embedding model ranked by centroid
+    distance — the shortlist for healing a split voice, with the numbers
+    visible so a suspiciously far merge looks suspicious."""
+    pairs = await pipe.speakers.similar(
+        speaker.user_id, speaker.model, speaker.centroid, exclude_id=speaker.id
+    )
+    return SimilarSpeakersResponse(
+        items=[SimilarSpeakerRead.from_pair(row, distance) for row, distance in pairs]
+    )
+
+
+@router.post("/{speaker_id}/merge", summary="Merge this cluster into another")
+async def merge_speaker(
+    speaker: OwnedSpeaker, pipe: Pipe, body: SpeakerMergeRequest
+) -> SpeakerRead:
+    """Fold the path speaker's voice-prints into the target, then delete the
+    path speaker; the target's centroid becomes the mean over the combined
+    members. A label is never lost — an unnamed survivor inherits the
+    merged-away cluster's name. Same-model only: pgvector's distance and
+    ``avg()`` error out across dimensions."""
+    if body.into_speaker_id == speaker.id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="a cluster cannot be merged into itself",
+        )
+    survivor = await pipe.speakers.get(body.into_speaker_id)
+    if survivor is None or survivor.user_id != speaker.user_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="speaker not found")
+    if survivor.model != speaker.model:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="clusters live in different embedding models",
+        )
+    if survivor.name is None and speaker.name is not None:
+        await pipe.speakers.set_name(survivor.id, speaker.name)
+    await pipe.speakers.merge(speaker.id, survivor.id)
+    summary = await pipe.speakers.summarize(survivor.id)
+    assert summary is not None  # just merged into it, same transaction
+    return SpeakerRead.from_model(summary)
 
 
 @router.get("/{speaker_id}/transcripts", summary="Everything one cluster said")

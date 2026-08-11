@@ -140,6 +140,42 @@ class SpeakersRepo(BaseRepo):
         distance = row.pop("distance")
         return Speaker.model_validate(row), float(distance)
 
+    async def similar(
+        self,
+        user_id: UUID,
+        model: str,
+        vector: Sequence[float],
+        exclude_id: UUID,
+        limit: int = 20,
+    ) -> list[tuple[SpeakerSummary, float]]:
+        """The user's other clusters in this model, closest centroid first —
+        the candidate list for a manual merge, distances included so the UI
+        can show how far apart two voices really are."""
+        literal = _literal(vector)
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                """
+                    SELECT s.id, s.user_id, s.name, s.model,
+                           s.centroid::text AS centroid, s.created_at, s.updated_at,
+                           count(e.artifact_id) AS embeddings,
+                           count(DISTINCT e.session_id) AS sessions,
+                           s.centroid <=> %s::vector AS distance
+                    FROM speakers s
+                    LEFT JOIN speaker_embeddings e ON e.speaker_id = s.id
+                    WHERE s.user_id = %s AND s.model = %s AND s.id != %s
+                    GROUP BY s.id
+                    ORDER BY distance, s.id
+                    LIMIT %s
+                """,
+                (literal, user_id, model, exclude_id, limit),
+            )
+            rows = await cur.fetchall()
+        ranked: list[tuple[SpeakerSummary, float]] = []
+        for row in rows:
+            distance = float(row.pop("distance"))
+            ranked.append((SpeakerSummary.model_validate(row), distance))
+        return ranked
+
     async def assign_if_unassigned(self, artifact_id: UUID, speaker_id: UUID) -> bool:
         """Attach an embedding to a cluster unless it vanished or was claimed.
 

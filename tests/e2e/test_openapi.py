@@ -28,6 +28,8 @@ EXPECTED_METHODS = {
     "/v1/speakers/transcripts": {"get"},
     "/v1/speakers/{speaker_id}": {"get"},
     "/v1/speakers/{speaker_id}/label": {"post"},
+    "/v1/speakers/{speaker_id}/merge": {"post"},
+    "/v1/speakers/{speaker_id}/similar": {"get"},
     "/v1/speakers/{speaker_id}/transcripts": {"get"},
 }
 

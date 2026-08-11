@@ -116,7 +116,8 @@ the project is not installed onto `PATH` — use `python -m cli.main`.
 
 A React + TypeScript browser UI over the API: session browser, timeline
 (transcripts, speakers, sound tags), seekable audio playback, text→audio
-search, and speaker labeling. Dev-mode only for now:
+search, and speaker labeling — including merging a split voice (distance-ranked
+candidates, with a same-name prompt). Dev-mode only for now:
 
 ```bash
 make api    # terminal 1 — the API on 127.0.0.1:8000

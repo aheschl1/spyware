@@ -195,6 +195,11 @@ each tier discovers its own input):
    clusters are identity anchors that survive republication and the
    `cli speakers recluster` full rebuild (the drift correction). Embeddings
    under `cluster_min_talk_ms` of speech are skipped as unreliable.
+   A voice split past the merge threshold is healed manually:
+   `POST /v1/speakers/{id}/merge` folds one cluster into another
+   (`GET /v1/speakers/{id}/similar` ranks candidates by centroid distance),
+   and the web UI offers it via a per-cluster merge button plus a prompt
+   when two clusters are given the same name.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API

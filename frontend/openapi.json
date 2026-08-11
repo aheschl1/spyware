@@ -1758,6 +1758,158 @@
         }
       }
     },
+    "/v1/speakers/{speaker_id}/similar": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Merge candidates, closest first",
+        "description": "Your other clusters in the same embedding model ranked by centroid\ndistance \u2014 the shortlist for healing a split voice, with the numbers\nvisible so a suspiciously far merge looks suspicious.",
+        "operationId": "list_similar_speakers_v1_speakers__speaker_id__similar_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarSpeakersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/merge": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Merge this cluster into another",
+        "description": "Fold the path speaker's voice-prints into the target, then delete the\npath speaker; the target's centroid becomes the mean over the combined\nmembers. A label is never lost \u2014 an unnamed survivor inherits the\nmerged-away cluster's name. Same-model only: pgvector's distance and\n``avg()`` error out across dimensions.",
+        "operationId": "merge_speaker_v1_speakers__speaker_id__merge_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/speakers/{speaker_id}/transcripts": {
       "get": {
         "tags": [
@@ -3155,6 +3307,86 @@
         "title": "SessionStartEvent",
         "description": "Opens every timeline at ``at_ms`` 0."
       },
+      "SimilarSpeakerRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "User-given label; null = unlabeled."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The embedding model this cluster lives in."
+          },
+          "embeddings": {
+            "type": "integer",
+            "title": "Embeddings",
+            "description": "Voice-prints currently assigned to the cluster."
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions",
+            "description": "Distinct sessions the cluster was heard in."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "distance": {
+            "type": "number",
+            "title": "Distance",
+            "description": "Cosine distance between centroids; ~0.6 within one voice, ~0.9 between different voices."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model",
+          "embeddings",
+          "sessions",
+          "created_at",
+          "updated_at",
+          "distance"
+        ],
+        "title": "SimilarSpeakerRead",
+        "description": "A merge candidate: another cluster in the same embedding model,\nwith its centroid's cosine distance from the reference speaker."
+      },
+      "SimilarSpeakersResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarSpeakerRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "SimilarSpeakersResponse",
+        "description": "Every other cluster of yours in the same model, closest first."
+      },
       "SnippetSegment": {
         "properties": {
           "text": {
@@ -3196,6 +3428,22 @@
         ],
         "title": "SpeakerLabelRequest",
         "description": "Body of ``POST /speakers/{id}/label``. ``name`` is required so an\nempty body is a 422, never a silent clear; send an explicit null to\nremove the label."
+      },
+      "SpeakerMergeRequest": {
+        "properties": {
+          "into_speaker_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Into Speaker Id",
+            "description": "The cluster that survives the merge."
+          }
+        },
+        "type": "object",
+        "required": [
+          "into_speaker_id"
+        ],
+        "title": "SpeakerMergeRequest",
+        "description": "Body of ``POST /speakers/{id}/merge``: fold the path speaker into\nthis one. The survivor keeps its id (and its name, unless it has none\nand the merged-away cluster does)."
       },
       "SpeakerRead": {
         "properties": {

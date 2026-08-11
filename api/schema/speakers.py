@@ -49,6 +49,49 @@ class SpeakerLabelRequest(BaseModel):
     )
 
 
+class SpeakerMergeRequest(BaseModel):
+    """Body of ``POST /speakers/{id}/merge``: fold the path speaker into
+    this one. The survivor keeps its id (and its name, unless it has none
+    and the merged-away cluster does)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    into_speaker_id: UUID = Field(description="The cluster that survives the merge.")
+
+
+class SimilarSpeakerRead(SpeakerRead):
+    """A merge candidate: another cluster in the same embedding model,
+    with its centroid's cosine distance from the reference speaker."""
+
+    distance: float = Field(
+        description="Cosine distance between centroids; ~0.6 within one "
+        "voice, ~0.9 between different voices."
+    )
+
+    @classmethod
+    def from_pair(
+        cls, speaker: SpeakerSummary, distance: float
+    ) -> "SimilarSpeakerRead":
+        return cls(
+            id=speaker.id,
+            name=speaker.name,
+            model=speaker.model,
+            embeddings=speaker.embeddings,
+            sessions=speaker.sessions,
+            created_at=speaker.created_at,
+            updated_at=speaker.updated_at,
+            distance=distance,
+        )
+
+
+class SimilarSpeakersResponse(BaseModel):
+    """Every other cluster of yours in the same model, closest first."""
+
+    model_config = ConfigDict(frozen=True)
+
+    items: list[SimilarSpeakerRead]
+
+
 class SpeakerTranscriptRead(BaseModel):
     """One utterance's transcript, resolved through a speaker cluster."""
 
