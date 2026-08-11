@@ -9,7 +9,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from api import session_audio
+from api import session_audio, timeline_events
 from services import stitch
 from api.deps import CurrentUser, OwnedSession, Paging, Pipe
 from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
@@ -17,10 +17,15 @@ from api.schema.artifacts import ArtifactRead
 from api.schema.common import ErrorResponse, Page
 from api.schema.segments import SegmentRead
 from api.schema.sessions import SessionCreateRequest, SessionRead
+from api.schema.timeline import TimelineEvent
 from database.schema.sessions import SessionCreate
 from storage.pipe import BlobPipe
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+# Far past any real session's artifact count; the timeline pages over
+# *events* (one artifact yields several), so the rows cannot be paged in SQL.
+_MAX_TIMELINE_ARTIFACTS = 1_000_000
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, summary="Start a recording session")
@@ -105,6 +110,34 @@ async def list_session_artifacts(
         offset=paging.offset,
     )
     return Page.build(rows, paging, ArtifactRead.from_model)
+
+
+@router.get("/{session_id}/timeline", summary="A session's ordered event timeline")
+async def get_session_timeline(
+    session: OwnedSession,
+    pipe: Pipe,
+    paging: Paging,
+    from_ms: int | None = Query(None, ge=0, description="Only events at/after this time."),
+    to_ms: int | None = Query(None, ge=0, description="Only events before this time."),
+) -> Page[TimelineEvent]:
+    """What happened when: session frames, speech starts/ends, transcripts.
+
+    Events carry a ``type`` discriminator; clients must ignore types they do
+    not recognise — future processing tiers add new ones. `limit`/`offset`
+    page over events (one artifact can yield several, so offsets here do not
+    line up with the artifacts route). A `from_ms`/`to_ms` window keeps only
+    events positioned inside it, so adjacent windows partition the stream —
+    a span straddling a boundary contributes its `speech-end` alone.
+
+    An unprocessed (or speechless) session serves just its session frames;
+    processing status stays introspectable via `.../artifacts?kind=speech-map`.
+    """
+    rows = await pipe.artifacts.list_for_session(
+        session.id, from_ms=from_ms, to_ms=to_ms, limit=_MAX_TIMELINE_ARTIFACTS
+    )
+    events = timeline_events.assemble(session, rows, from_ms=from_ms, to_ms=to_ms)
+    window = events[paging.offset : paging.offset + paging.probe_limit]
+    return Page.build(window, paging, lambda event: event)
 
 
 async def _stream_stitched(
