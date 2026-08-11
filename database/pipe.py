@@ -24,6 +24,7 @@ from database.repos.embeddings import EmbeddingsRepo
 from database.repos.jobs import JobsRepo
 from database.repos.segments import SegmentsRepo
 from database.repos.sessions import SessionsRepo
+from database.repos.speakers import SpeakersRepo
 from database.repos.tokens import TokensRepo
 from database.repos.users import UsersRepo
 
@@ -128,6 +129,10 @@ class DatabasePipe:
     @cached_property
     def embeddings(self) -> EmbeddingsRepo:
         return EmbeddingsRepo(self.connection)
+
+    @cached_property
+    def speakers(self) -> SpeakersRepo:
+        return SpeakersRepo(self.connection)
 
     def _clear_repos(self) -> None:
         """Drop cached repositories so none outlives its connection."""

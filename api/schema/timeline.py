@@ -79,6 +79,14 @@ class TranscriptEvent(ArtifactEventBase):
         description="Diarized speaker of the utterance (block-namespaced, "
         "e.g. ``b109176:SPEAKER_00``); labels are stable within a block only.",
     )
+    speaker_id: UUID | None = Field(
+        None,
+        description="Global speaker cluster the voice resolved to; null when "
+        "not (yet) clustered.",
+    )
+    speaker_name: str | None = Field(
+        None, description="The cluster's user-given label, if it has one."
+    )
 
 
 type TimelineEvent = Annotated[

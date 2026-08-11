@@ -8,6 +8,7 @@ swapped in via ``PROCESSING_DIARIZER_BASE_URL``.
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -86,8 +87,11 @@ def parse_response(body: Any) -> DiarizationResult:
         # speaker with almost no clean speech) is not worth retrying to
         # death over: the turns are the load-bearing output — this tier
         # gates transcription — so drop just that speaker's embedding.
+        # isfinite matters: json.loads parses a literal NaN into a float
+        # that would poison every pgvector distance downstream.
         if not isinstance(vector, list) or not all(
-            isinstance(value, (int, float)) for value in vector
+            isinstance(value, (int, float)) and math.isfinite(value)
+            for value in vector
         ):
             logger.warning("dropping malformed embedding for %r", speaker)
             continue

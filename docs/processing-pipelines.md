@@ -183,6 +183,18 @@ each tier discovers its own input):
    whose utterance vanished skip themselves. Transcripts therefore wait on
    the whole session's diarization — the cost of gating ASR on the detector
    that actually hears every speaker.
+4. **`speaker-cluster`** (`processing/pipelines/speaker_cluster.py`) —
+   consumes each session's `diarize-map` and attaches that session's
+   embeddings to the user's global `speakers` clusters (pgvector
+   nearest-centroid within `cluster_assign_max_distance`, else a new
+   unlabeled cluster; merge pass collapses converged centroids, never two
+   differently-named ones). Assignments live in
+   `speaker_embeddings.speaker_id` — a resolve-at-read mapping, so
+   re-clustering never rewrites transcripts; local labels stay provenance.
+   Clusters are user-labeled via `POST /v1/speakers/{id}/label`; named
+   clusters are identity anchors that survive republication and the
+   `cli speakers recluster` full rebuild (the drift correction). Embeddings
+   under `cluster_min_talk_ms` of speech are skipped as unreliable.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API

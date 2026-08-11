@@ -126,6 +126,37 @@ def test_orphan_transcript_still_appears() -> None:
     assert events[1].text == "alone" and events[1].end_ms == 4_000
 
 
+def test_speaker_map_stamps_global_identity_on_transcripts() -> None:
+    resolved = _transcript(0, 1_000, speaker="b0:SPEAKER_00")
+    unresolved = _transcript(2_000, 3_000, speaker="b0:SPEAKER_01")
+    speaker_id = uuid4()
+
+    events = assemble(
+        _session(),
+        [resolved, unresolved],
+        speakers={"b0:SPEAKER_00": (speaker_id, "Mom")},
+    )
+
+    stamped, plain = events[1:]
+    assert stamped.speaker_id == speaker_id and stamped.speaker_name == "Mom"
+    assert stamped.speaker == "b0:SPEAKER_00"  # provenance survives
+    assert plain.speaker_id is None and plain.speaker_name is None
+
+    # No map at all: nothing is stamped, nothing breaks.
+    bare = assemble(_session(), [resolved])
+    assert bare[1].speaker_id is None and bare[1].speaker_name is None
+
+
+def test_speaker_map_names_can_be_null() -> None:
+    # An unlabeled cluster still resolves the id; the name stays null.
+    events = assemble(
+        _session(),
+        [_transcript(0, 1_000, speaker="b0:SPEAKER_00")],
+        speakers={"b0:SPEAKER_00": (uuid4(), None)},
+    )
+    assert events[1].speaker_id is not None and events[1].speaker_name is None
+
+
 def test_transcript_speaker_and_missing_metadata() -> None:
     attributed = _artifact(
         "transcribe",

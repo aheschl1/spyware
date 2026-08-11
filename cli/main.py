@@ -373,6 +373,64 @@ async def sessions_delete(session_id: UUID, yes: bool) -> None:
     click.echo(f"deleted session and {removed} object(s)")
 
 
+# ------------------------------------------------------------------------ speakers
+
+
+@cli.group()
+def speakers() -> None:
+    """Inspect and rebuild global speaker clusters."""
+
+
+@speakers.command("list")
+@click.argument("email")
+@async_command
+async def speakers_list(email: str) -> None:
+    """List a user's speaker clusters with membership counts."""
+    async with DatabasePipe() as pipe:
+        user = await _require_user(pipe, email)
+        found = await pipe.speakers.list_for_user(user.id, limit=200)
+    if not found:
+        click.echo("no speakers")
+        return
+    for speaker in found:
+        click.echo(
+            f"{speaker.id}  {_fmt(speaker.name):<20} "
+            f"{speaker.embeddings:>4} embedding(s) across {speaker.sessions} session(s)"
+        )
+
+
+@speakers.command("recluster")
+@click.argument("email")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+@async_command
+async def speakers_recluster(email: str, yes: bool) -> None:
+    """Rebuild a user's clusters from scratch (drift correction).
+
+    Named clusters survive as identity anchors and reclaim their members;
+    unlabeled cluster ids churn. Safe to run any time — assignments are
+    derived data.
+    """
+    from processing.config import get_settings as processing_settings
+    from processing.pipelines.speaker_cluster import cluster_batch
+
+    if not yes:
+        click.confirm(
+            f"rebuild all speaker clusters for {email}? (named clusters survive)",
+            abort=True,
+        )
+    async with DatabasePipe() as pipe:
+        user = await _require_user(pipe, email)
+        cleared = await pipe.speakers.clear_assignments_for_user(user.id)
+        dropped = await pipe.speakers.delete_unlabeled_for_user(user.id)
+        candidates = await pipe.speakers.unassigned_for_user(user.id)
+        result = await cluster_batch(pipe, user.id, candidates, processing_settings())
+    click.echo(
+        f"cleared {cleared} assignment(s), dropped {dropped} unlabeled cluster(s); "
+        f"reassigned {result['assigned']} + {result['created']} into new clusters, "
+        f"merged {result['merged']}, skipped {result['skipped_short']} short"
+    )
+
+
 # ------------------------------------------------------------------------ segments
 
 

@@ -150,7 +150,10 @@ def test_parse_response_rejects_malformed(body) -> None:
         parse_response(body)
 
 
-@pytest.mark.parametrize("bad_vector", ["not-a-vector", [1.0, "x"], [1.0, None]])
+@pytest.mark.parametrize(
+    "bad_vector",
+    ["not-a-vector", [1.0, "x"], [1.0, None], [1.0, float("nan")], [float("inf")]],
+)
 def test_malformed_embedding_is_dropped_not_fatal(bad_vector) -> None:
     """Turns gate transcription now; one bad vector must not kill the job."""
     result = parse_response(

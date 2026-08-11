@@ -289,6 +289,11 @@ class DiarizePipeline(Pipeline):
         vectors and rows in the same transaction; the artifact carries the
         addressing.
         """
+        talk_ms: dict[str, int] = {}
+        for turn in result.turns:
+            talk_ms[turn.speaker] = talk_ms.get(turn.speaker, 0) + (
+                turn.end_ms - turn.start_ms
+            )
         rows = []
         for speaker, vector in sorted(result.embeddings.items()):
             namespaced = f"b{block.start_ms}:{speaker}"
@@ -304,6 +309,9 @@ class DiarizePipeline(Pipeline):
                             "speaker": namespaced,
                             "dim": len(vector),
                             "model": result.model,
+                            # The clustering tier's quality gate: voice-prints
+                            # from very little speech are noise.
+                            "talk_ms": talk_ms.get(speaker, 0),
                         },
                     ),
                     vector,

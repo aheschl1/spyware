@@ -15,6 +15,7 @@ from api.schema.common import PageParams
 from database.pipe import DatabasePipe
 from database.schema.segments import AudioSegment
 from database.schema.sessions import RecordingSession
+from database.schema.speakers import Speaker
 from database.schema.users import User
 
 # auto_error=False: a missing header reaches get_current_user, which raises 401.
@@ -122,5 +123,22 @@ async def get_owned_segment(
 
 
 OwnedSegment = Annotated[AudioSegment, Depends(get_owned_segment)]
+
+
+async def get_owned_speaker(
+    user: CurrentUser,
+    speaker_id: Annotated[UUID, Path(description="A speaker cluster belonging to you.")],
+) -> Speaker:
+    """Load a speaker the caller owns. Another user's speaker raises 404."""
+    async with DatabasePipe() as pipe:
+        speaker = await pipe.speakers.get(speaker_id)
+    if speaker is None or speaker.user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="speaker not found"
+        )
+    return speaker
+
+
+OwnedSpeaker = Annotated[Speaker, Depends(get_owned_speaker)]
 
 Paging = Annotated[PageParams, Depends()]
