@@ -14,10 +14,16 @@ EXPECTED_METHODS = {
     "/v1/sessions/{session_id}/audio": {"get"},
     "/v1/sessions/{session_id}/end": {"post"},
     "/v1/sessions/{session_id}/segments": {"get"},
+    "/v1/sessions/{session_id}/speakers": {"get"},
     "/v1/sessions/{session_id}/timeline": {"get"},
     "/v1/segments": {"get"},
     "/v1/segments/{segment_id}": {"get"},
     "/v1/segments/{segment_id}/audio": {"get"},
+    "/v1/speakers": {"get"},
+    "/v1/speakers/transcripts": {"get"},
+    "/v1/speakers/{speaker_id}": {"get"},
+    "/v1/speakers/{speaker_id}/label": {"post"},
+    "/v1/speakers/{speaker_id}/transcripts": {"get"},
 }
 
 

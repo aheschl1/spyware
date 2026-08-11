@@ -13,6 +13,7 @@ from database.schema.jobs import Job, JobCreate
 from processing.base import Callback, Pipeline
 from processing.pipelines.diarize import DiarizePipeline
 from processing.pipelines.session_stats import SessionStatsPipeline
+from processing.pipelines.speaker_cluster import SpeakerClusterPipeline
 from processing.pipelines.speech_detect import SpeechDetectPipeline
 from processing.pipelines.stats_echo import StatsEchoPipeline
 from processing.pipelines.transcribe import TranscribePipeline
@@ -23,6 +24,7 @@ PIPELINES: tuple[type[Pipeline], ...] = (
     SpeechDetectPipeline,
     DiarizePipeline,
     TranscribePipeline,
+    SpeakerClusterPipeline,
 )
 
 

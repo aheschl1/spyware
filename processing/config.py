@@ -73,6 +73,17 @@ class ProcessingSettings(BaseSettings):
     diarize_utterance_merge_gap_ms: int = 1_500
     diarize_max_utterance_ms: int = 30_000
 
+    # Speaker clustering tier: cosine distances over per-(block, speaker)
+    # embeddings. Assign attaches an embedding to its nearest cluster; merge
+    # (stricter) collapses clusters whose centroids converge. Embeddings from
+    # under min_talk_ms of speech are skipped as unreliable voice-prints.
+    # Calibrated on real glasses sessions (pyannote 3.1 / wespeaker): the
+    # same voice spreads up to ~0.6 across blocks and sessions; known
+    # different voices in one conversation sat at ~0.9.
+    cluster_assign_max_distance: float = 0.60
+    cluster_merge_max_distance: float = 0.50
+    cluster_min_talk_ms: int = 3_000
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> ProcessingSettings:

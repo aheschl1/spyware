@@ -30,7 +30,7 @@ TEST_BUCKET = "test-audio"
 
 TABLES = (
     "users, recording_sessions, audio_segments, auth_tokens, "
-    "processing_jobs, pipeline_artifacts"
+    "processing_jobs, pipeline_artifacts, speakers"
 )
 
 SERVER_BOOT_TIMEOUT = 30.0
@@ -129,6 +129,9 @@ def test_env(
         "PROCESSING_DIARIZER_BASE_URL": stub_audio_services,
         "PROCESSING_DIARIZER_TIMEOUT_SECONDS": "10",
         "PROCESSING_DIARIZE_MIN_TURN_MS": "100",
+        # The stub's turns are 150ms; the default 3s gate would silently
+        # skip every embedding and no cluster test could pass.
+        "PROCESSING_CLUSTER_MIN_TALK_MS": "100",
     }
     os.environ.update(env)
 

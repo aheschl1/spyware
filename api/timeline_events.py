@@ -6,9 +6,10 @@ expander contributes events; everything else (``speech-map``,
 Registering one expander is all a new tier needs to appear on the timeline.
 """
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import timedelta
 from itertools import chain
+from uuid import UUID
 
 from api.schema.timeline import (
     SessionEndEvent,
@@ -103,12 +104,18 @@ def assemble(
     *,
     from_ms: int | None = None,
     to_ms: int | None = None,
+    speakers: Mapping[str, tuple[UUID, str | None]] | None = None,
 ) -> list[TimelineEvent]:
     """Every event derivable from the rows, in timeline order.
 
     ``from_ms``/``to_ms`` keep only events positioned in ``[from_ms, to_ms)``:
     an artifact overlapping the window contributes just the events inside it,
     so adjacent windows partition the stream — no duplicates, no gaps.
+
+    ``speakers`` maps block-local labels to ``(speaker_id, name)`` from the
+    clustering tier; matching transcript events get stamped with the global
+    identity. Unresolvable labels stay null — clustering is eventually
+    consistent with diarization.
     """
     events: Iterator[TimelineEvent] = chain(
         _session_events(session),
@@ -122,4 +129,13 @@ def assemble(
         events = (event for event in events if event.at_ms >= from_ms)
     if to_ms is not None:
         events = (event for event in events if event.at_ms < to_ms)
-    return sorted(events, key=_sort_key)
+    ordered = sorted(events, key=_sort_key)
+    if not speakers:
+        return ordered
+    return [
+        event.model_copy(update={"speaker_id": ref[0], "speaker_name": ref[1]})
+        if event.type == "transcript"
+        and (ref := speakers.get(getattr(event, "speaker", None))) is not None
+        else event
+        for event in ordered
+    ]

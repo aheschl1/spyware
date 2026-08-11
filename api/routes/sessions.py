@@ -17,6 +17,7 @@ from api.schema.artifacts import ArtifactRead
 from api.schema.common import ErrorResponse, Page
 from api.schema.segments import SegmentRead
 from api.schema.sessions import SessionCreateRequest, SessionRead
+from api.schema.speakers import SessionSpeakerRead
 from api.schema.timeline import TimelineEvent
 from database.schema.sessions import SessionCreate
 from storage.pipe import BlobPipe
@@ -135,9 +136,43 @@ async def get_session_timeline(
     rows = await pipe.artifacts.list_for_session(
         session.id, from_ms=from_ms, to_ms=to_ms, limit=_MAX_TIMELINE_ARTIFACTS
     )
-    events = timeline_events.assemble(session, rows, from_ms=from_ms, to_ms=to_ms)
+    labels = await pipe.speakers.labels_for_session(session.id)
+    speaker_map = {
+        label.speaker: (label.speaker_id, label.name)
+        for label in labels
+        if label.speaker_id is not None
+    }
+    events = timeline_events.assemble(
+        session, rows, from_ms=from_ms, to_ms=to_ms, speakers=speaker_map
+    )
     window = events[paging.offset : paging.offset + paging.probe_limit]
     return Page.build(window, paging, lambda event: event)
+
+
+@router.get("/{session_id}/speakers", summary="Who spoke in this session")
+async def list_session_speakers(
+    session: OwnedSession, pipe: Pipe
+) -> list[SessionSpeakerRead]:
+    """One row per voice: clustered voices grouped under their global
+    speaker (labeled or not), with each not-yet-clustered block-local label
+    on its own row — nothing the diarizer heard is hidden.
+    """
+    labels = await pipe.speakers.labels_for_session(session.id)
+    grouped: dict = {}
+    for label in labels:
+        # Unassigned labels get their own rows: two unknown voices must not
+        # be lumped into one "unclustered" bucket.
+        key = label.speaker_id or f"local:{label.speaker}"
+        entry = grouped.setdefault(
+            key, {"speaker_id": label.speaker_id, "name": label.name,
+                  "local_labels": [], "talk_ms": 0}
+        )
+        entry["local_labels"].append(label.speaker)
+        entry["talk_ms"] += label.talk_ms or 0
+    return [
+        SessionSpeakerRead(**entry)
+        for entry in sorted(grouped.values(), key=lambda e: -e["talk_ms"])
+    ]
 
 
 async def _stream_stitched(
