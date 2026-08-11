@@ -128,6 +128,11 @@ def test_env(
         "PROCESSING_TRANSCRIBER_TIMEOUT_SECONDS": "10",
         "PROCESSING_DIARIZER_BASE_URL": stub_audio_services,
         "PROCESSING_DIARIZER_TIMEOUT_SECONDS": "10",
+        "PROCESSING_CLASSIFIER_BASE_URL": stub_audio_services,
+        "PROCESSING_CLASSIFIER_TIMEOUT_SECONDS": "10",
+        # The API embeds search queries through the same stub.
+        "API_CLASSIFIER_BASE_URL": stub_audio_services,
+        "API_CLASSIFIER_TIMEOUT_SECONDS": "10",
         "PROCESSING_DIARIZE_MIN_TURN_MS": "100",
         # The stub's turns are 150ms; the default 3s gate would silently
         # skip every embedding and no cluster test could pass.

@@ -19,6 +19,7 @@ EXPECTED_METHODS = {
     "/v1/segments": {"get"},
     "/v1/segments/{segment_id}": {"get"},
     "/v1/segments/{segment_id}/audio": {"get"},
+    "/v1/search/audio": {"get"},
     "/v1/speakers": {"get"},
     "/v1/speakers/transcripts": {"get"},
     "/v1/speakers/{speaker_id}": {"get"},
@@ -66,6 +67,7 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "speech-start",
         "speech-end",
         "transcript",
+        "audio-tag",
     }
     # Transcripts never leak the storage layout; the full text is inline and
     # carries its diarized speaker (no truncation — transcripts are row-only).

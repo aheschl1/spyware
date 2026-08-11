@@ -204,6 +204,37 @@ Swapping models/backends is env-only. Canary-qwen is English-only and emits
 no word timestamps — timing granularity is the utterance; a forced-alignment
 tier can refine it later on the same artifact model.
 
+## The audio-tag tier
+
+`audio-tag` (`processing/pipelines/audio_tag.py`) runs beside the speech
+tiers, not downstream of them: it discovers ended sessions directly (same
+trigger as `speech-detect`) because non-speech sound — traffic, music, a
+keyboard — is exactly what it exists to hear.
+
+1. **audio-tag** — walks the session's audio in ~2-minute rendered spans
+   (overlapping by window-minus-hop so the service's 10 s / 5 s-hop window
+   grid stays continuous across seams) and sends each span to the
+   classification service behind `processing/classifier.py`
+   (`PROCESSING_CLASSIFIER_BASE_URL` — our `audio_tagger` container serving
+   CED-base for AudioSet's 527 sound classes plus LAION-CLAP for audio
+   embeddings; `POST {base}/audio/analyze`). Publishes per ~10 s window one
+   `audio-tag` artifact — top tag scores in metadata, ontology ancestors
+   suppressed (AudioSet is a DAG: a guitar clip scores Music, Musical
+   instrument *and* Guitar; the window keeps the most specific winner) — and
+   one `audio_embeddings` pgvector row keyed by that artifact. The
+   `audio-tag-map` written last carries the session-level tag list: per-class
+   MAX across windows (events are sparse; a mean buries them), gated on
+   holding `audio_tag_threshold` for `audio_tag_min_consecutive` windows in a
+   row. The ontology parent map is vendored data
+   (`processing/data/audioset_parents.json`, generated from
+   github.com/audioset/ontology).
+
+The embeddings are the retrieval half of question-answering over recordings:
+`GET /v1/search/audio?q=…` embeds the text through the same service's CLAP
+text encoder and ranks the caller's windows by cosine distance — consumers
+then feed the hit windows' transcripts and tags to an LLM. The vectors are
+never fed to a model directly.
+
 ## Callbacks and chaining
 
 `Pipeline.__init__` takes an optional callback; `maybe_callback(job, result)`

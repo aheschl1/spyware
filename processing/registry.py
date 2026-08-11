@@ -11,6 +11,7 @@ from typing import Any
 from database.pipe import DatabasePipe
 from database.schema.jobs import Job, JobCreate
 from processing.base import Callback, Pipeline
+from processing.pipelines.audio_tag import AudioTagPipeline
 from processing.pipelines.diarize import DiarizePipeline
 from processing.pipelines.session_stats import SessionStatsPipeline
 from processing.pipelines.speaker_cluster import SpeakerClusterPipeline
@@ -25,6 +26,7 @@ PIPELINES: tuple[type[Pipeline], ...] = (
     DiarizePipeline,
     TranscribePipeline,
     SpeakerClusterPipeline,
+    AudioTagPipeline,
 )
 
 
