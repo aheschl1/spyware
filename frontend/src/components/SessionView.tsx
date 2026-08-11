@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { api, type SessionRead } from "../api/client"
+import { stopClip } from "../clipPlayer"
 import { fmtDate, fmtDuration, shortId } from "../format"
 import AudioPlayer from "./AudioPlayer"
 import TagSummary from "./TagSummary"
@@ -18,6 +19,12 @@ export default function SessionView({
   const [session, setSession] = useState<SessionRead | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const pendingSeek = useRef<number | undefined>(seekMs)
+
+  // The session has its own full player; a still-running inline clip from
+  // the search/speakers page would double the audio.
+  useEffect(() => {
+    stopClip()
+  }, [])
 
   useEffect(() => {
     void api
@@ -77,7 +84,7 @@ export default function SessionView({
       </div>
       <AudioPlayer sessionId={sessionId} audioRef={audioRef} />
       <TagSummary sessionId={sessionId} />
-      <Timeline sessionId={sessionId} onSeek={seekTo} />
+      <Timeline sessionId={sessionId} onSeek={seekTo} focusMs={seekMs} />
     </div>
   )
 }

@@ -1,6 +1,21 @@
 import { useEffect, useState } from "react"
 import { api, type SpeakerRead, type SpeakerTranscriptRead } from "../api/client"
 import { fmtClock, shortId } from "../format"
+import ClipButton, { ClipProgress } from "./ClipButton"
+
+function initials(name: string | null | undefined, id: string): string {
+  if (!name) return id.slice(0, 2)
+  const parts = name.trim().split(/\s+/)
+  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || id.slice(0, 2)
+}
+
+// Deterministic accent per speaker so the same cluster always wears the
+// same colour, labeled or not.
+function hue(id: string): number {
+  let h = 0
+  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360
+  return h
+}
 
 export default function SpeakersView({
   onOpen,
@@ -32,9 +47,7 @@ export default function SpeakersView({
     })
     setEditing(null)
     if (data) {
-      setSpeakers((prev) =>
-        (prev ?? []).map((s) => (s.id === data.id ? data : s)),
-      )
+      setSpeakers((prev) => (prev ?? []).map((s) => (s.id === data.id ? data : s)))
     }
   }
 
@@ -58,6 +71,12 @@ export default function SpeakersView({
       {speakers.map((speaker) => (
         <div key={speaker.id} className="speaker-card">
           <div className="speaker-row">
+            <span
+              className="avatar"
+              style={{ background: `hsl(${hue(speaker.id)} 45% 28%)` }}
+            >
+              {initials(speaker.name, speaker.id)}
+            </span>
             {editing === speaker.id ? (
               <form
                 className="speaker-edit"
@@ -85,7 +104,9 @@ export default function SpeakersView({
             ) : (
               <>
                 <button className="speaker-name" onClick={() => toggle(speaker)}>
-                  {speaker.name ?? <span className="row-dim">unlabeled · {shortId(speaker.id)}</span>}
+                  {speaker.name ?? (
+                    <span className="row-dim">unlabeled · {shortId(speaker.id)}</span>
+                  )}
                 </button>
                 <span className="row-sub">
                   {speaker.sessions} session{speaker.sessions === 1 ? "" : "s"} ·{" "}
@@ -108,16 +129,27 @@ export default function SpeakersView({
               {(transcripts[speaker.id] ?? []).length === 0 ? (
                 <div className="empty">No transcripts.</div>
               ) : (
-                (transcripts[speaker.id] ?? []).map((t) => (
-                  <button
-                    key={t.artifact_id}
-                    className="row"
-                    onClick={() => onOpen(t.session_id, t.start_ms)}
-                  >
-                    <span className="event-time as-span">{fmtClock(t.start_ms)}</span>
-                    <span className="transcript-text">{t.text}</span>
-                  </button>
-                ))
+                (transcripts[speaker.id] ?? []).map((t) => {
+                  const clip = {
+                    key: t.artifact_id,
+                    sessionId: t.session_id,
+                    startMs: t.start_ms,
+                    endMs: t.end_ms,
+                  }
+                  return (
+                    <div
+                      key={t.artifact_id}
+                      className="row clickable"
+                      onClick={() => onOpen(t.session_id, t.start_ms)}
+                      title="open in session"
+                    >
+                      <ClipButton clip={clip} />
+                      <span className="event-time as-span">{fmtClock(t.start_ms)}</span>
+                      <span className="transcript-text">{t.text}</span>
+                      <ClipProgress clip={clip} />
+                    </div>
+                  )
+                })
               )}
             </div>
           )}

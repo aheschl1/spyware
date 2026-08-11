@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from "react"
 import { api, type AudioSearchRead } from "../api/client"
 import { fmtClock, shortId } from "../format"
+import ClipButton, { ClipProgress } from "./ClipButton"
 
 // Text->audio search over the CLAP window embeddings. Distances are only
 // comparable within one query, so results show rank order, not a match
-// percentage. A 502 means the embedding sidecar (audio-tagger) is down.
+// percentage. Each hit can be played in place (▶) or opened in its session
+// at that moment (row click). A 502 means the embedding sidecar is down.
 export default function SearchView({
   onOpen,
 }: {
@@ -55,30 +57,42 @@ export default function SearchView({
       {results && results.length === 0 && <div className="empty">No matching audio.</div>}
       {results && results.length > 0 && (
         <div className="list">
-          {results.map((hit, rank) => (
-            <button
-              key={hit.artifact_id}
-              className="row"
-              onClick={() => onOpen(hit.session_id, hit.start_ms)}
-            >
-              <span className="rank">#{rank + 1}</span>
-              <div className="row-main">
-                <span className="row-title">
-                  {fmtClock(hit.start_ms)} – {fmtClock(hit.end_ms)}
-                  <span className="row-dim"> in {shortId(hit.session_id)}</span>
-                </span>
-                {hit.labels.length > 0 && (
-                  <span className="chips">
-                    {hit.labels.slice(0, 4).map((tag) => (
-                      <span key={tag.label} className="chip">
-                        {tag.label}
-                      </span>
-                    ))}
+          {results.map((hit, rank) => {
+            const clip = {
+              key: hit.artifact_id,
+              sessionId: hit.session_id,
+              startMs: hit.start_ms,
+              endMs: hit.end_ms,
+            }
+            return (
+              <div
+                key={hit.artifact_id}
+                className="row clickable"
+                onClick={() => onOpen(hit.session_id, hit.start_ms)}
+                title="open in session"
+              >
+                <ClipButton clip={clip} />
+                <span className="rank">#{rank + 1}</span>
+                <div className="row-main">
+                  <span className="row-title">
+                    {fmtClock(hit.start_ms)} – {fmtClock(hit.end_ms)}
+                    <span className="row-dim"> in {shortId(hit.session_id)}</span>
                   </span>
-                )}
+                  {hit.labels.length > 0 && (
+                    <span className="chips">
+                      {hit.labels.slice(0, 4).map((tag) => (
+                        <span key={tag.label} className="chip">
+                          {tag.label}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                </div>
+                <span className="row-open">open ↗</span>
+                <ClipProgress clip={clip} />
               </div>
-            </button>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
