@@ -6,11 +6,13 @@ import struct
 SAMPLE_RATE = 16000
 
 
-def wav_bytes(seconds: float = 0.2, freq: int = 440, rate: int = SAMPLE_RATE) -> bytes:
-    """A mono 16-bit PCM WAV of a sine tone."""
+def wav_bytes(
+    seconds: float = 0.2, freq: int = 440, rate: int = SAMPLE_RATE, amplitude: int = 12000
+) -> bytes:
+    """A mono 16-bit PCM WAV of a sine tone (``amplitude=0`` for silence)."""
     frames = int(rate * seconds)
     pcm = b"".join(
-        struct.pack("<h", int(12000 * math.sin(2 * math.pi * freq * i / rate)))
+        struct.pack("<h", int(amplitude * math.sin(2 * math.pi * freq * i / rate)))
         for i in range(frames)
     )
     header = (

@@ -1,15 +1,17 @@
 """Raw-SQL repository for the ``pipeline_artifacts`` table."""
 
+from collections.abc import Sequence
 from uuid import UUID
 
+from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from database.repos.base import BaseRepo
 from database.schema.artifacts import ArtifactCreate, PipelineArtifact
 
 COLUMNS = (
-    "id, pipeline, session_id, kind, bucket, object_key, links, metadata, "
-    "created_at, updated_at"
+    "id, pipeline, session_id, kind, start_ms, end_ms, bucket, object_key, "
+    "links, metadata, created_at, updated_at"
 )
 
 
@@ -19,14 +21,17 @@ class ArtifactsRepo(BaseRepo):
             PipelineArtifact,
             f"""
                 INSERT INTO pipeline_artifacts
-                    (pipeline, kind, session_id, bucket, object_key, links, metadata)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (pipeline, kind, session_id, start_ms, end_ms,
+                     bucket, object_key, links, metadata)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING {COLUMNS}
             """,
             (
                 data.pipeline,
                 data.kind,
                 data.session_id,
+                data.start_ms,
+                data.end_ms,
                 data.bucket,
                 data.object_key,
                 Jsonb(data.links),
@@ -35,6 +40,56 @@ class ArtifactsRepo(BaseRepo):
         )
         assert artifact is not None  # INSERT ... RETURNING always yields a row
         return artifact
+
+    async def create_many(self, items: Sequence[ArtifactCreate]) -> list[PipelineArtifact]:
+        """Insert a batch in one statement, in order.
+
+        The publication path for pipelines that emit many artifacts per run
+        (diarize: hundreds of turns) — one round trip, one transaction with
+        whatever else the caller is publishing.
+        """
+        if not items:
+            return []
+        params: list = []
+        for item in items:
+            params += [
+                item.pipeline,
+                item.kind,
+                item.session_id,
+                item.start_ms,
+                item.end_ms,
+                item.bucket,
+                item.object_key,
+                Jsonb(item.links),
+                Jsonb(item.metadata),
+            ]
+        values = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(items))
+        async with self._conn.cursor(row_factory=dict_row) as cur:
+            await cur.execute(
+                f"""
+                    INSERT INTO pipeline_artifacts
+                        (pipeline, kind, session_id, start_ms, end_ms,
+                         bucket, object_key, links, metadata)
+                    VALUES {values}
+                    RETURNING {COLUMNS}
+                """,
+                params,
+            )
+            rows = await cur.fetchall()
+        return [PipelineArtifact.model_validate(row) for row in rows]
+
+    async def delete_for_pipeline(self, session_id: UUID, pipeline: str) -> int:
+        """Remove every artifact one pipeline produced for a session.
+
+        The idempotent-republication primitive: a retrying job clears its own
+        previous output before writing the new set, in one transaction, so
+        consumers never observe a partial mix. Blobs are untouched (rewriting
+        jobs overwrite the same keys).
+        """
+        return await self._execute(
+            "DELETE FROM pipeline_artifacts WHERE session_id = %s AND pipeline = %s",
+            (session_id, pipeline),
+        )
 
     async def get(self, artifact_id: UUID) -> PipelineArtifact | None:
         return await self._fetch_one(
@@ -59,14 +114,50 @@ class ArtifactsRepo(BaseRepo):
             (pipeline, kind, session_id),
         )
 
+    async def find_overlapping(
+        self,
+        session_id: UUID,
+        from_ms: int,
+        to_ms: int,
+        pipeline: str | None = None,
+        kind: str | None = None,
+        limit: int = 100,
+    ) -> list[PipelineArtifact]:
+        """Span artifacts touching ``[from_ms, to_ms)``, in timeline order.
+
+        Whole-session artifacts (NULL span) are excluded — this is the
+        "what is attached to this chunk of the session" query.
+        """
+        sql = f"""
+            SELECT {COLUMNS} FROM pipeline_artifacts
+            WHERE session_id = %s AND start_ms IS NOT NULL
+              AND start_ms < %s AND end_ms > %s
+        """
+        params: list = [session_id, to_ms, from_ms]
+        if pipeline is not None:
+            sql += " AND pipeline = %s"
+            params.append(pipeline)
+        if kind is not None:
+            sql += " AND kind = %s"
+            params.append(kind)
+        sql += " ORDER BY start_ms, id LIMIT %s"
+        params.append(limit)
+        return await self._fetch_all(PipelineArtifact, sql, params)
+
     async def list_for_session(
         self,
         session_id: UUID,
         pipeline: str | None = None,
         kind: str | None = None,
+        from_ms: int | None = None,
+        to_ms: int | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[PipelineArtifact]:
+        """Artifacts of one session, timeline order (whole-session rows first).
+
+        ``from_ms``/``to_ms`` restrict to span artifacts overlapping the range.
+        """
         sql = f"SELECT {COLUMNS} FROM pipeline_artifacts WHERE session_id = %s"
         params: list = [session_id]
         if pipeline is not None:
@@ -75,7 +166,13 @@ class ArtifactsRepo(BaseRepo):
         if kind is not None:
             sql += " AND kind = %s"
             params.append(kind)
-        sql += " ORDER BY created_at, id LIMIT %s OFFSET %s"
+        if from_ms is not None:
+            sql += " AND end_ms > %s"
+            params.append(from_ms)
+        if to_ms is not None:
+            sql += " AND start_ms < %s"
+            params.append(to_ms)
+        sql += " ORDER BY start_ms NULLS FIRST, id LIMIT %s OFFSET %s"
         params += [limit, offset]
         return await self._fetch_all(PipelineArtifact, sql, params)
 

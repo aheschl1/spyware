@@ -7,6 +7,7 @@ pipeline blob space, and artifact registration. Real pipelines (transcription,
 
 import json
 from collections.abc import Sequence
+import logging
 from typing import Any
 
 from database.pipe import DatabasePipe
@@ -23,9 +24,10 @@ class SessionStatsPipeline(Pipeline):
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         async with DatabasePipe() as pipe:
-            sessions = await SessionStatsQueries(pipe.connection).discover_unprocessed(
+            sessions = await SessionStatsQueries(pipe.connection).ended_sessions_without(
                 self.name, limit
             )
+        logging.debug(f"pipeline {self.name} found {len(sessions)} jobs")
         return tuple(
             JobCreate(
                 pipeline=self.name,

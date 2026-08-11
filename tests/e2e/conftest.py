@@ -38,7 +38,9 @@ SERVER_BOOT_TIMEOUT = 30.0
 
 @pytest.fixture(scope="session")
 def postgres() -> Iterator[PostgresContainer]:
-    with PostgresContainer("postgres:16") as container:
+    # The pgvector image is the official postgres:16 plus the vector
+    # extension, which migration 0006 requires — mirrors production.
+    with PostgresContainer("pgvector/pgvector:pg16") as container:
         yield container
 
 
@@ -49,7 +51,33 @@ def minio() -> Iterator[MinioContainer]:
 
 
 @pytest.fixture(scope="session")
-def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, str]:
+def stub_audio_services() -> Iterator[str]:
+    """Fake transcription + diarization services; yields the base URL (with /v1)."""
+    port = _free_port()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "tests.e2e.stub_audio_services", str(port)], cwd=REPO_ROOT
+    )
+    base_url = f"http://127.0.0.1:{port}/v1"
+    deadline = time.monotonic() + SERVER_BOOT_TIMEOUT
+    try:
+        while True:
+            try:
+                if httpx.get(f"http://127.0.0.1:{port}/", timeout=1.0).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            assert time.monotonic() < deadline, "stub transcriber did not start"
+            time.sleep(0.1)
+        yield base_url
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+@pytest.fixture(scope="session")
+def test_env(
+    postgres: PostgresContainer, minio: MinioContainer, stub_audio_services: str
+) -> dict[str, str]:
     """Point every DATABASE_*/STORAGE_* variable at the containers.
 
     Both settings objects are ``@lru_cache``d, so the caches are cleared after
@@ -91,6 +119,16 @@ def test_env(postgres: PostgresContainer, minio: MinioContainer) -> dict[str, st
         "PROCESSING_RETRY_BACKOFF_BASE_SECONDS": "0.05",
         "PROCESSING_RETRY_BACKOFF_CAP_SECONDS": "0.2",
         "PROCESSING_SHUTDOWN_GRACE_SECONDS": "5",
+        # Deterministic speech detection (a sine tone IS activity) and stub
+        # model services instead of GPU containers. The stub's canned turns
+        # are 150ms, so the min-turn filter is lowered below them.
+        "PROCESSING_VAD_BACKEND": "energy",
+        "PROCESSING_TRANSCRIBER_BASE_URL": stub_audio_services,
+        "PROCESSING_TRANSCRIBER_PROTOCOL": "openai",
+        "PROCESSING_TRANSCRIBER_TIMEOUT_SECONDS": "10",
+        "PROCESSING_DIARIZER_BASE_URL": stub_audio_services,
+        "PROCESSING_DIARIZER_TIMEOUT_SECONDS": "10",
+        "PROCESSING_DIARIZE_MIN_TURN_MS": "100",
     }
     os.environ.update(env)
 

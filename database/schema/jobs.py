@@ -23,6 +23,7 @@ class Job(BaseModel):
     id: UUID
     pipeline: str
     session_id: UUID | None = None
+    artifact_id: UUID | None = None
     priority: int
     status: JobStatus
     attempts: int
@@ -51,6 +52,7 @@ class JobCreate(BaseModel):
 
     pipeline: str
     session_id: UUID | None = None
+    artifact_id: UUID | None = None
     priority: int = 0
     payload: dict[str, Any] = Field(default_factory=dict)
     dedup_key: str | None = None

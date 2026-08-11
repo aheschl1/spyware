@@ -31,6 +31,48 @@ class ProcessingSettings(BaseSettings):
     restart_backoff_cap_seconds: float = 30.0
     restart_reset_seconds: float = 60.0
 
+    # Speech detection (the VAD tier) — see processing/vad.py for the span
+    # assembly these tune.
+    vad_backend: str = "silero"  # or "energy": deterministic RMS threshold
+    # Deliberately low: spans are a coarse, high-recall activity gate that
+    # feeds the diarize tier's block assembly — no longer the ASR gate. On a
+    # glasses mic silero scores far (non-wearer) speakers low, so precision
+    # here would silence one side of every conversation.
+    vad_threshold: float = 0.15
+    vad_min_speech_ms: int = 250
+    # Wide enough that ordinary conversational pauses don't split a span;
+    # only a real lull does. Long pauses SHOULD split: silence wastes GPU
+    # time and invites ASR hallucination.
+    vad_merge_gap_ms: int = 2500
+    vad_pad_ms: int = 200
+    # The transcription model's input window: Canary/Whisper-family models
+    # are trained on <=~40s clips, so spans must stay inside that envelope.
+    # Forced cuts land on the quietest frame near the cap (processing/vad.py).
+    vad_max_span_ms: int = 30_000
+    vad_energy_threshold: int = 500  # int16 RMS amplitude, energy backend only
+
+    # Transcription tier. The base URL speaks the standard transcriptions API
+    # ("openai" protocol: POST {base}/audio/transcriptions) or a cog wrapper
+    # ("cog": POST {base}/predictions) — swapping backends is env-only.
+    transcriber_base_url: str = "http://127.0.0.1:8033/v1"
+    transcriber_model: str = "nvidia/canary-qwen-2.5b"
+    transcriber_protocol: str = "openai"  # or "cog"
+    transcriber_timeout_seconds: float = 600.0
+
+    # Diarization tier. Speech spans re-merge into blocks (contiguous speech,
+    # gap-joined and capped) because diarization label consistency needs long
+    # context — see docs/processing-pipelines.md.
+    diarizer_base_url: str = "http://127.0.0.1:8034/v1"
+    diarizer_timeout_seconds: float = 900.0  # a 30-min block is minutes of GPU
+    diarize_block_merge_gap_ms: int = 30_000
+    diarize_max_block_ms: int = 1_800_000
+    diarize_min_turn_ms: int = 300
+    # Utterances: same-speaker turns merged into the ASR units the transcribe
+    # tier consumes. The cap is the transcription model's input window, same
+    # rationale as vad_max_span_ms.
+    diarize_utterance_merge_gap_ms: int = 1_500
+    diarize_max_utterance_ms: int = 30_000
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> ProcessingSettings:

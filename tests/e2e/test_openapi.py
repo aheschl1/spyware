@@ -10,9 +10,11 @@ EXPECTED_METHODS = {
     "/v1/me": {"get"},
     "/v1/sessions": {"get", "post"},
     "/v1/sessions/{session_id}": {"get"},
+    "/v1/sessions/{session_id}/artifacts": {"get"},
     "/v1/sessions/{session_id}/audio": {"get"},
     "/v1/sessions/{session_id}/end": {"post"},
     "/v1/sessions/{session_id}/segments": {"get"},
+    "/v1/sessions/{session_id}/timeline": {"get"},
     "/v1/segments": {"get"},
     "/v1/segments/{segment_id}": {"get"},
     "/v1/segments/{segment_id}/audio": {"get"},
@@ -40,7 +42,31 @@ async def test_segment_schema_hides_storage_layout(client: httpx.AsyncClient) ->
 
 async def test_paged_schemas_are_generated_per_item_type(client: httpx.AsyncClient) -> None:
     spec = (await client.get("/openapi.json")).json()
-    assert {"Page_SegmentRead_", "Page_SessionRead_"} <= set(spec["components"]["schemas"])
+    assert {"Page_SegmentRead_", "Page_SessionRead_", "Page_TimelineEvent_"} <= set(
+        spec["components"]["schemas"]
+    )
+
+
+async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) -> None:
+    """Guards the forward-compat contract: typed events behind one `type` tag."""
+    spec = (await client.get("/openapi.json")).json()
+    schemas = spec["components"]["schemas"]
+
+    discriminator = schemas["TimelineEvent"]["discriminator"]
+    assert discriminator["propertyName"] == "type"
+    assert set(discriminator["mapping"]) == {
+        "session-start",
+        "session-end",
+        "speech-start",
+        "speech-end",
+        "transcript",
+    }
+    # Transcripts never leak the storage layout; the full text is inline and
+    # carries its diarized speaker (no truncation — transcripts are row-only).
+    assert "bucket" not in schemas["TranscriptEvent"]["properties"]
+    assert "object_key" not in schemas["TranscriptEvent"]["properties"]
+    assert "speaker" in schemas["TranscriptEvent"]["properties"]
+    assert "truncated" not in schemas["TranscriptEvent"]["properties"]
 
 
 async def test_docs_render(client: httpx.AsyncClient) -> None:

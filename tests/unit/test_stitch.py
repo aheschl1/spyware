@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from api.stitch import (
+from services.stitch import (
     WAV_HEADER_BYTES,
     NotStitchable,
     check_uniform,

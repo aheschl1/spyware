@@ -11,7 +11,11 @@ class PipelineArtifact(BaseModel):
     """One pipeline output: an optional blob pointer plus pipeline-defined
     ``kind``, ``links``, and ``metadata``. Consumers query these to find
     upstream results (a transcript, a summary, ...) without knowing how the
-    producing pipeline stores its data."""
+    producing pipeline stores its data.
+
+    ``start_ms``/``end_ms`` place the artifact on the session's timeline
+    (milliseconds from session start); both NULL means the whole session.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -19,6 +23,8 @@ class PipelineArtifact(BaseModel):
     pipeline: str
     session_id: UUID | None = None
     kind: str
+    start_ms: int | None = None
+    end_ms: int | None = None
     bucket: str | None = None
     object_key: str | None = None
     links: dict[str, Any] = Field(default_factory=dict)
@@ -35,6 +41,8 @@ class ArtifactCreate(BaseModel):
     pipeline: str
     kind: str
     session_id: UUID | None = None
+    start_ms: int | None = None
+    end_ms: int | None = None
     bucket: str | None = None
     object_key: str | None = None
     links: dict[str, Any] = Field(default_factory=dict)
