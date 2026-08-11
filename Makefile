@@ -45,9 +45,13 @@ gen-client: openapi
 	cd frontend && npm run gen
 
 # Dev pairing: `make api` in one terminal, `make web` in another. Vite proxies
-# /v1 and /health to 127.0.0.1:8000, so the browser talks same-origin.
+# /v1 and /health to API_PROXY (default 127.0.0.1:8000), so the browser talks
+# same-origin. Override the bind/port to serve peers, e.g.
+#   make web WEB_HOST=10.8.0.1 WEB_PORT=12345 API_PROXY=http://10.8.0.1:8000
+WEB_HOST ?= 127.0.0.1
+WEB_PORT ?= 5173
 web:
-	cd frontend && npm install --no-audit --no-fund && npm run dev
+	cd frontend && npm install --no-audit --no-fund && npm run dev -- --host $(WEB_HOST) --port $(WEB_PORT)
 
 migrate:
 	uv run alembic upgrade head
