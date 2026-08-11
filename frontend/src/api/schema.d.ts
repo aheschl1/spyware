@@ -549,6 +549,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search/transcripts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find moments by what was said
+         * @description Lexical search over the transcript utterances, best rank first.
+         *
+         *     Strict full-text first (stemmed, so 'discussing' finds 'discussed');
+         *     when that matches nothing, trigram close-spelling matches take over —
+         *     misheard ASR words and typos still land — flagged ``fuzzy`` so the UI
+         *     can say so. Scores are comparable within one response only.
+         */
+        get: operations["search_transcripts_v1_search_transcripts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1056,6 +1081,16 @@ export interface components {
             started_at: string;
         };
         /**
+         * SnippetSegment
+         * @description One run of snippet text; ``match`` marks the highlighted query terms.
+         */
+        SnippetSegment: {
+            /** Text */
+            text: string;
+            /** Match */
+            match: boolean;
+        };
+        /**
          * SpeakerLabelRequest
          * @description Body of ``POST /speakers/{id}/label``. ``name`` is required so an
          *     empty body is a 422, never a silent clear; send an explicit null to
@@ -1353,6 +1388,57 @@ export interface components {
              * @description The cluster's user-given label, if it has one.
              */
             speaker_name?: string | null;
+        };
+        /**
+         * TranscriptSearchRead
+         * @description One utterance matching the transcript query.
+         */
+        TranscriptSearchRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             * @description The utterance's ``transcript`` artifact.
+             */
+            artifact_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /**
+             * Speaker
+             * @description Diarized speaker label (block-namespaced).
+             */
+            speaker?: string | null;
+            /**
+             * Score
+             * @description Cover-density rank (strict) or trigram word-similarity (fuzzy); comparable within one response only.
+             */
+            score: number;
+            /**
+             * Segments
+             * @description The snippet, split into plain and matched runs.
+             */
+            segments: components["schemas"]["SnippetSegment"][];
+        };
+        /**
+         * TranscriptSearchResponse
+         * @description Matching utterances, best first.
+         */
+        TranscriptSearchResponse: {
+            /** Query */
+            query: string;
+            /**
+             * Fuzzy
+             * @description True when strict full-text matching found nothing and these are trigram close-spelling matches instead.
+             */
+            fuzzy: boolean;
+            /** Items */
+            items: components["schemas"]["TranscriptSearchRead"][];
         };
         /**
          * UsageRead
@@ -2720,6 +2806,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TagSearchResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_transcripts_v1_search_transcripts_get: {
+        parameters: {
+            query: {
+                /** @description Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and "quoted phrases" must appear adjacent. */
+                q: string;
+                /** @description Restrict matches to one session. */
+                session_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TranscriptSearchResponse"];
                 };
             };
             /** @description Unauthorized */

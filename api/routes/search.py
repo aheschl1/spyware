@@ -8,9 +8,15 @@
   matched on the tagger's stored per-class sigmoid scores (exact classes,
   calibrated, thresholdable). ``/search/tags/labels`` lists the classes
   actually heard, for the filter UI.
+- ``/search/transcripts`` — **lexical**: "when was X said". Postgres FTS
+  (stemming, phrases, google-ish operators) over the transcript utterances,
+  falling back to trigram close-spelling matches when strict finds nothing.
+  A semantic ``mode`` is planned but deliberately deferred (chunk-overlap
+  design first); adding it stays non-breaking.
 
 Together they are the retrieval primitives for question-answering over
-recordings; consumers feed the hit windows' transcripts and tags to an LLM.
+recordings: the audio routes answer "when did I hear X", transcripts answer
+"when was X said"; consumers feed the hit evidence to an LLM.
 """
 
 import math
@@ -28,6 +34,8 @@ from api.schema.search import (
     TagLabelsResponse,
     TagSearchRead,
     TagSearchResponse,
+    TranscriptSearchRead,
+    TranscriptSearchResponse,
 )
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -122,4 +130,34 @@ async def search_tags(
         label=label,
         min_score=min_score,
         items=[TagSearchRead.from_model(hit) for hit in hits],
+    )
+
+
+@router.get("/transcripts", summary="Find moments by what was said")
+async def search_transcripts(
+    user: CurrentUser,
+    pipe: Pipe,
+    q: str = Query(min_length=1, max_length=500, description="Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and \"quoted phrases\" must appear adjacent."),
+    session_id: UUID | None = Query(None, description="Restrict matches to one session."),
+    limit: int = Query(20, ge=1, le=100),
+) -> TranscriptSearchResponse:
+    """Lexical search over the transcript utterances, best rank first.
+
+    Strict full-text first (stemmed, so 'discussing' finds 'discussed');
+    when that matches nothing, trigram close-spelling matches take over —
+    misheard ASR words and typos still land — flagged ``fuzzy`` so the UI
+    can say so. Scores are comparable within one response only.
+    """
+    hits = await pipe.transcripts.search(
+        user_id=user.id, q=q, session_id=session_id, limit=limit
+    )
+    fuzzy = not hits
+    if fuzzy:
+        hits = await pipe.transcripts.search_fuzzy(
+            user_id=user.id, q=q, session_id=session_id, limit=limit
+        )
+    return TranscriptSearchResponse(
+        query=q,
+        fuzzy=fuzzy and bool(hits),
+        items=[TranscriptSearchRead.from_model(hit, fuzzy=fuzzy) for hit in hits],
     )

@@ -235,6 +235,15 @@ text encoder and ranks the caller's windows by cosine distance — consumers
 then feed the hit windows' transcripts and tags to an LLM. The vectors are
 never fed to a model directly.
 
+Search is a trio: contrastive audio (`/search/audio`, "when did I hear X"),
+tag filtering (`/search/tags`, calibrated class scores), and lexical
+transcript search (`/search/transcripts`, "when was X said" — Postgres FTS
+with a trigram fuzzy fallback; indexes in migration 0009, queries in
+`database/repos/transcripts.py`, no pipeline involvement). Semantic
+transcript search (sentence embeddings + a `transcript-embed` tier) is
+deliberately deferred pending a chunk-overlap design; it would arrive as a
+non-breaking `mode=` parameter.
+
 ## Callbacks and chaining
 
 `Pipeline.__init__` takes an optional callback; `maybe_callback(job, result)`

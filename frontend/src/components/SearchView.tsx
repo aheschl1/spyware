@@ -5,10 +5,12 @@ import ClipButton, { ClipProgress } from "./ClipButton"
 
 type TagSearchRead = Schemas["TagSearchRead"]
 type TagLabelRead = Schemas["TagLabelRead"]
+type TranscriptSearchRead = Schemas["TranscriptSearchRead"]
+type SnippetSegment = Schemas["SnippetSegment"]
 
-type Mode = "describe" | "classes"
+type Mode = "describe" | "classes" | "transcripts"
 
-// One row shape serves both search modes.
+// One row shape serves every search mode.
 type Hit = {
   artifactId: string
   sessionId: string
@@ -16,6 +18,8 @@ type Hit = {
   endMs: number
   headline: string | null // matched class + score (filter mode)
   labels: { label: string; score: number }[]
+  segments: SnippetSegment[] | null // highlighted snippet (transcript mode)
+  speaker: string | null
 }
 
 function fromContrastive(hit: AudioSearchRead): Hit {
@@ -26,6 +30,8 @@ function fromContrastive(hit: AudioSearchRead): Hit {
     endMs: hit.end_ms,
     headline: null,
     labels: hit.labels,
+    segments: null,
+    speaker: null,
   }
 }
 
@@ -37,6 +43,21 @@ function fromTag(hit: TagSearchRead): Hit {
     endMs: hit.end_ms,
     headline: `${hit.label} · ${(hit.score * 100).toFixed(0)}%`,
     labels: hit.labels.filter((tag) => tag.label !== hit.label),
+    segments: null,
+    speaker: null,
+  }
+}
+
+function fromTranscript(hit: TranscriptSearchRead): Hit {
+  return {
+    artifactId: hit.artifact_id,
+    sessionId: hit.session_id,
+    startMs: hit.start_ms,
+    endMs: hit.end_ms,
+    headline: null,
+    labels: [],
+    segments: hit.segments,
+    speaker: hit.speaker ?? null,
   }
 }
 
@@ -57,6 +78,7 @@ export default function SearchView({
   const [results, setResults] = useState<Hit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fuzzy, setFuzzy] = useState(false)
 
   // The class vocabulary actually heard in this user's audio, for chips +
   // datalist suggestions in filter mode.
@@ -70,7 +92,20 @@ export default function SearchView({
     if (!query.trim()) return
     setBusy(true)
     setError(null)
-    if (mode === "describe") {
+    setFuzzy(false)
+    if (mode === "transcripts") {
+      const { data } = await api.GET("/v1/search/transcripts", {
+        params: { query: { q: query.trim(), limit: 30 } },
+      })
+      setBusy(false)
+      if (data) {
+        setResults(data.items.map(fromTranscript))
+        setFuzzy(data.fuzzy)
+      } else {
+        setResults(null)
+        setError("search failed")
+      }
+    } else if (mode === "describe") {
       const { data, response } = await api.GET("/v1/search/audio", {
         params: { query: { q: query.trim(), limit: 30 } },
       })
@@ -109,6 +144,7 @@ export default function SearchView({
           [
             ["describe", "describe a sound"],
             ["classes", "filter by class"],
+            ["transcripts", "transcripts"],
           ] as const
         ).map(([value, title]) => (
           <button
@@ -132,7 +168,9 @@ export default function SearchView({
           placeholder={
             mode === "describe"
               ? "describe a sound — “keyboard typing”, “a dog barking”, “music”…"
-              : "class name — “speech” matches “Male speech, man speaking”…"
+              : mode === "classes"
+                ? "class name — “speech” matches “Male speech, man speaking”…"
+                : 'words that were said — supports "quoted phrases", -exclude, or'
           }
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -187,7 +225,14 @@ export default function SearchView({
       )}
 
       {error && <div className="banner error">{error}</div>}
-      {results && results.length === 0 && <div className="empty">No matching audio.</div>}
+      {fuzzy && (
+        <div className="fuzzy-note">no exact matches — showing close spellings</div>
+      )}
+      {results && results.length === 0 && (
+        <div className="empty">
+          {mode === "transcripts" ? "Nothing like that was said." : "No matching audio."}
+        </div>
+      )}
       {results && results.length > 0 && (
         <div className="list">
           {results.map((hit, rank) => {
@@ -205,13 +250,27 @@ export default function SearchView({
                 title="open in session"
               >
                 <ClipButton clip={clip} />
-                {hit.headline === null && <span className="rank">#{rank + 1}</span>}
+                {hit.headline === null && hit.segments === null && (
+                  <span className="rank">#{rank + 1}</span>
+                )}
                 <div className="row-main">
                   <span className="row-title">
                     {hit.headline && <span className="match-label">{hit.headline} · </span>}
                     {fmtClock(hit.startMs)} – {fmtClock(hit.endMs)}
                     <span className="row-dim"> in {shortId(hit.sessionId)}</span>
+                    {hit.speaker && <span className="row-dim"> · {hit.speaker}</span>}
                   </span>
+                  {hit.segments && (
+                    <span className="snippet">
+                      {hit.segments.map((segment, i) =>
+                        segment.match ? (
+                          <mark key={i}>{segment.text}</mark>
+                        ) : (
+                          <span key={i}>{segment.text}</span>
+                        ),
+                      )}
+                    </span>
+                  )}
                   {hit.labels.length > 0 && (
                     <span className="chips">
                       {hit.labels.slice(0, 4).map((tag) => (

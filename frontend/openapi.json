@@ -2118,6 +2118,109 @@
           }
         }
       }
+    },
+    "/v1/search/transcripts": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Find moments by what was said",
+        "description": "Lexical search over the transcript utterances, best rank first.\n\nStrict full-text first (stemmed, so 'discussing' finds 'discussed');\nwhen that matches nothing, trigram close-spelling matches take over \u2014\nmisheard ASR words and typos still land \u2014 flagged ``fuzzy`` so the UI\ncan say so. Scores are comparable within one response only.",
+        "operationId": "search_transcripts_v1_search_transcripts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and \"quoted phrases\" must appear adjacent.",
+              "title": "Q"
+            },
+            "description": "Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and \"quoted phrases\" must appear adjacent."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict matches to one session.",
+              "title": "Session Id"
+            },
+            "description": "Restrict matches to one session."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptSearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3052,6 +3155,25 @@
         "title": "SessionStartEvent",
         "description": "Opens every timeline at ``at_ms`` 0."
       },
+      "SnippetSegment": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "match": {
+            "type": "boolean",
+            "title": "Match"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "match"
+        ],
+        "title": "SnippetSegment",
+        "description": "One run of snippet text; ``match`` marks the highlighted query terms."
+      },
       "SpeakerLabelRequest": {
         "properties": {
           "name": {
@@ -3544,6 +3666,93 @@
         ],
         "title": "TranscriptEvent",
         "description": "What one speaker said over ``[start_ms, end_ms)``; positioned at the start."
+      },
+      "TranscriptSearchRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The utterance's ``transcript`` artifact."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker",
+            "description": "Diarized speaker label (block-namespaced)."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "Cover-density rank (strict) or trigram word-similarity (fuzzy); comparable within one response only."
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SnippetSegment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "The snippet, split into plain and matched runs."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "score",
+          "segments"
+        ],
+        "title": "TranscriptSearchRead",
+        "description": "One utterance matching the transcript query."
+      },
+      "TranscriptSearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "fuzzy": {
+            "type": "boolean",
+            "title": "Fuzzy",
+            "description": "True when strict full-text matching found nothing and these are trigram close-spelling matches instead."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSearchRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "fuzzy",
+          "items"
+        ],
+        "title": "TranscriptSearchResponse",
+        "description": "Matching utterances, best first."
       },
       "UsageRead": {
         "properties": {

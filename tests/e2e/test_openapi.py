@@ -23,6 +23,7 @@ EXPECTED_METHODS = {
     "/v1/search/audio": {"get"},
     "/v1/search/tags": {"get"},
     "/v1/search/tags/labels": {"get"},
+    "/v1/search/transcripts": {"get"},
     "/v1/speakers": {"get"},
     "/v1/speakers/transcripts": {"get"},
     "/v1/speakers/{speaker_id}": {"get"},

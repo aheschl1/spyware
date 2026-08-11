@@ -787,6 +787,25 @@ button.row:hover,
   color: var(--accent-strong);
 }
 
+.snippet {
+  color: var(--text-muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.snippet mark {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.fuzzy-note {
+  color: var(--yellow);
+  font-size: 13px;
+  padding: 2px 4px;
+}
+
 /* ------------- speakers */
 
 .speaker-card {
