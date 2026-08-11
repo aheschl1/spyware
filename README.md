@@ -112,6 +112,26 @@ uv run python -m cli.main check
 `pyproject.toml` declares the `audio-pipeline` entry point, but with no build backend
 the project is not installed onto `PATH` — use `python -m cli.main`.
 
+## Web frontend (`frontend/`)
+
+A React + TypeScript browser UI over the API: session browser, timeline
+(transcripts, speakers, sound tags), seekable audio playback, text→audio
+search, and speaker labeling. Dev-mode only for now:
+
+```bash
+make api    # terminal 1 — the API on 127.0.0.1:8000
+make web    # terminal 2 — Vite dev server; proxies /v1 + /health to the API
+```
+
+Log in with an account from `cli users create`. Models are **generated, never
+hand-written**: `make gen-client` regenerates `frontend/openapi.json` (a pure
+function of the route/model declarations — no server needed) and
+`frontend/src/api/schema.d.ts` via openapi-typescript; requests go through a
+typed openapi-fetch client. Regenerate after any API change — `npm run build`
+(tsc) fails on drift. Audio playback uses a minutes-lived token minted by
+`POST /v1/sessions/{id}/playback` in the audio URL's `?token=`, because media
+elements cannot send an Authorization header.
+
 ## Tests
 
 ```bash

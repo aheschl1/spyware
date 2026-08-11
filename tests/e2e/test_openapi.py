@@ -13,6 +13,7 @@ EXPECTED_METHODS = {
     "/v1/sessions/{session_id}/artifacts": {"get"},
     "/v1/sessions/{session_id}/audio": {"get"},
     "/v1/sessions/{session_id}/end": {"post"},
+    "/v1/sessions/{session_id}/playback": {"post"},
     "/v1/sessions/{session_id}/segments": {"get"},
     "/v1/sessions/{session_id}/speakers": {"get"},
     "/v1/sessions/{session_id}/timeline": {"get"},
