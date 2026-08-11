@@ -1954,6 +1954,170 @@
           }
         }
       }
+    },
+    "/v1/search/tags/labels": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "List the sound classes heard in your audio",
+        "description": "Every class the tagger stored for your windows, most frequent first \u2014\nthe vocabulary the ``/search/tags`` filter can act on.",
+        "operationId": "list_tag_labels_v1_search_tags_labels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagLabelsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/search/tags": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Find audio windows by sound-class score",
+        "description": "The deterministic search: exact classes with calibrated scores, best\nfirst. Unlike the contrastive route, scores ARE comparable across\nqueries and a threshold means the same thing everywhere.",
+        "operationId": "search_tags_v1_search_tags_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "label",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Class to match, case-insensitive substring \u2014 'speech' finds 'Male speech, man speaking'.",
+              "title": "Label"
+            },
+            "description": "Class to match, case-insensitive substring \u2014 'speech' finds 'Male speech, man speaking'."
+          },
+          {
+            "name": "min_score",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "description": "Keep windows where the class scored at least this.",
+              "default": 0.3,
+              "title": "Min Score"
+            },
+            "description": "Keep windows where the class scored at least this."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict matches to one session.",
+              "title": "Session Id"
+            },
+            "description": "Restrict matches to one session."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3107,6 +3271,130 @@
         ],
         "title": "SpeechStartEvent",
         "description": "Coarse audio activity begins here (high-recall VAD, not verified speech)."
+      },
+      "TagLabelRead": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "windows": {
+            "type": "integer",
+            "title": "Windows",
+            "description": "Windows where the class scored above the store floor."
+          },
+          "best": {
+            "type": "number",
+            "title": "Best",
+            "description": "The class's highest score anywhere."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "windows",
+          "best"
+        ],
+        "title": "TagLabelRead",
+        "description": "One class present in the caller's windows."
+      },
+      "TagLabelsResponse": {
+        "properties": {
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/TagLabelRead"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "labels"
+        ],
+        "title": "TagLabelsResponse",
+        "description": "Every class heard in the caller's audio, most frequent first."
+      },
+      "TagSearchRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The window's ``audio-tag`` artifact."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The matched class (canonical AudioSet name)."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "The tagger's sigmoid score for that class."
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/AudioTagLabel"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "The window's full tag list, for context."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "label",
+          "score",
+          "labels"
+        ],
+        "title": "TagSearchRead",
+        "description": "One window where the class scored at or above the floor."
+      },
+      "TagSearchResponse": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The filter as given (matched as substring)."
+          },
+          "min_score": {
+            "type": "number",
+            "title": "Min Score"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TagSearchRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "min_score",
+          "items"
+        ],
+        "title": "TagSearchResponse",
+        "description": "Windows matching the class filter, best score first."
       },
       "TimelineEvent": {
         "oneOf": [

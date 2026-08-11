@@ -506,6 +506,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/search/tags/labels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the sound classes heard in your audio
+         * @description Every class the tagger stored for your windows, most frequent first —
+         *     the vocabulary the ``/search/tags`` filter can act on.
+         */
+        get: operations["list_tag_labels_v1_search_tags_labels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/search/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find audio windows by sound-class score
+         * @description The deterministic search: exact classes with calibrated scores, best
+         *     first. Unlike the contrastive route, scores ARE comparable across
+         *     queries and a threshold means the same thing everywhere.
+         */
+        get: operations["search_tags_v1_search_tags_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1159,6 +1202,83 @@ export interface components {
              * @description Mean VAD frame probability over the span.
              */
             confidence?: number | null;
+        };
+        /**
+         * TagLabelRead
+         * @description One class present in the caller's windows.
+         */
+        TagLabelRead: {
+            /** Label */
+            label: string;
+            /**
+             * Windows
+             * @description Windows where the class scored above the store floor.
+             */
+            windows: number;
+            /**
+             * Best
+             * @description The class's highest score anywhere.
+             */
+            best: number;
+        };
+        /**
+         * TagLabelsResponse
+         * @description Every class heard in the caller's audio, most frequent first.
+         */
+        TagLabelsResponse: {
+            /** Labels */
+            labels: components["schemas"]["TagLabelRead"][];
+        };
+        /**
+         * TagSearchRead
+         * @description One window where the class scored at or above the floor.
+         */
+        TagSearchRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             * @description The window's ``audio-tag`` artifact.
+             */
+            artifact_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /**
+             * Label
+             * @description The matched class (canonical AudioSet name).
+             */
+            label: string;
+            /**
+             * Score
+             * @description The tagger's sigmoid score for that class.
+             */
+            score: number;
+            /**
+             * Labels
+             * @description The window's full tag list, for context.
+             */
+            labels: components["schemas"]["AudioTagLabel"][];
+        };
+        /**
+         * TagSearchResponse
+         * @description Windows matching the class filter, best score first.
+         */
+        TagSearchResponse: {
+            /**
+             * Label
+             * @description The filter as given (matched as substring).
+             */
+            label: string;
+            /** Min Score */
+            min_score: number;
+            /** Items */
+            items: components["schemas"]["TagSearchRead"][];
         };
         TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"];
         /**
@@ -2507,6 +2627,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AudioSearchResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tag_labels_v1_search_tags_labels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagLabelsResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    search_tags_v1_search_tags_get: {
+        parameters: {
+            query: {
+                /** @description Class to match, case-insensitive substring — 'speech' finds 'Male speech, man speaking'. */
+                label: string;
+                /** @description Keep windows where the class scored at least this. */
+                min_score?: number;
+                /** @description Restrict matches to one session. */
+                session_id?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagSearchResponse"];
                 };
             };
             /** @description Unauthorized */

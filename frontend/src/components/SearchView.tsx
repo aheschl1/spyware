@@ -1,57 +1,189 @@
-import { useState, type FormEvent } from "react"
-import { api, type AudioSearchRead } from "../api/client"
+import { useEffect, useState, type FormEvent } from "react"
+import { api, type AudioSearchRead, type Schemas } from "../api/client"
 import { fmtClock, shortId } from "../format"
 import ClipButton, { ClipProgress } from "./ClipButton"
 
-// Text->audio search over the CLAP window embeddings. Distances are only
-// comparable within one query, so results show rank order, not a match
-// percentage. Each hit can be played in place (▶) or opened in its session
-// at that moment (row click). A 502 means the embedding sidecar is down.
+type TagSearchRead = Schemas["TagSearchRead"]
+type TagLabelRead = Schemas["TagLabelRead"]
+
+type Mode = "describe" | "classes"
+
+// One row shape serves both search modes.
+type Hit = {
+  artifactId: string
+  sessionId: string
+  startMs: number
+  endMs: number
+  headline: string | null // matched class + score (filter mode)
+  labels: { label: string; score: number }[]
+}
+
+function fromContrastive(hit: AudioSearchRead): Hit {
+  return {
+    artifactId: hit.artifact_id,
+    sessionId: hit.session_id,
+    startMs: hit.start_ms,
+    endMs: hit.end_ms,
+    headline: null,
+    labels: hit.labels,
+  }
+}
+
+function fromTag(hit: TagSearchRead): Hit {
+  return {
+    artifactId: hit.artifact_id,
+    sessionId: hit.session_id,
+    startMs: hit.start_ms,
+    endMs: hit.end_ms,
+    headline: `${hit.label} · ${(hit.score * 100).toFixed(0)}%`,
+    labels: hit.labels.filter((tag) => tag.label !== hit.label),
+  }
+}
+
+// Two ways to find a moment:
+// - describe (contrastive): free text through CLAP's text encoder, ranked by
+//   embedding distance. Open vocabulary; ranks are relative per query.
+// - classes (filtering): the tagger's stored per-class sigmoid scores —
+//   deterministic, thresholdable, no model in the loop.
 export default function SearchView({
   onOpen,
 }: {
   onOpen: (id: string, seekMs?: number) => void
 }) {
+  const [mode, setMode] = useState<Mode>("describe")
   const [q, setQ] = useState("")
-  const [results, setResults] = useState<AudioSearchRead[] | null>(null)
+  const [minScore, setMinScore] = useState(0.3)
+  const [known, setKnown] = useState<TagLabelRead[]>([])
+  const [results, setResults] = useState<Hit[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!q.trim()) return
+  // The class vocabulary actually heard in this user's audio, for chips +
+  // datalist suggestions in filter mode.
+  useEffect(() => {
+    void api.GET("/v1/search/tags/labels").then(({ data }) => {
+      if (data) setKnown(data.labels)
+    })
+  }, [])
+
+  const run = async (query: string) => {
+    if (!query.trim()) return
     setBusy(true)
     setError(null)
-    const { data, response } = await api.GET("/v1/search/audio", {
-      params: { query: { q: q.trim(), limit: 30 } },
-    })
-    setBusy(false)
-    if (data) {
-      setResults(data.items)
+    if (mode === "describe") {
+      const { data, response } = await api.GET("/v1/search/audio", {
+        params: { query: { q: query.trim(), limit: 30 } },
+      })
+      setBusy(false)
+      if (data) setResults(data.items.map(fromContrastive))
+      else {
+        setResults(null)
+        setError(
+          response.status === 502
+            ? "the audio search service is offline"
+            : "search failed",
+        )
+      }
     } else {
-      setResults(null)
-      setError(
-        response.status === 502
-          ? "the audio search service is offline"
-          : "search failed",
-      )
+      const { data } = await api.GET("/v1/search/tags", {
+        params: { query: { label: query.trim(), min_score: minScore, limit: 30 } },
+      })
+      setBusy(false)
+      if (data) setResults(data.items.map(fromTag))
+      else {
+        setResults(null)
+        setError("search failed")
+      }
     }
+  }
+
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    void run(q)
   }
 
   return (
     <div className="search-view">
+      <div className="mode-toggle">
+        {(
+          [
+            ["describe", "describe a sound"],
+            ["classes", "filter by class"],
+          ] as const
+        ).map(([value, title]) => (
+          <button
+            key={value}
+            className={`mode ${mode === value ? "active" : ""}`}
+            onClick={() => {
+              setMode(value)
+              setResults(null)
+              setError(null)
+            }}
+          >
+            {title}
+          </button>
+        ))}
+      </div>
+
       <form className="search-bar" onSubmit={submit}>
         <input
           className="input"
-          placeholder="describe a sound — “keyboard typing”, “a dog barking”, “music”…"
+          placeholder={
+            mode === "describe"
+              ? "describe a sound — “keyboard typing”, “a dog barking”, “music”…"
+              : "class name — “speech” matches “Male speech, man speaking”…"
+          }
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          list={mode === "classes" ? "known-labels" : undefined}
           autoFocus
         />
+        {mode === "classes" && (
+          <datalist id="known-labels">
+            {known.map((row) => (
+              <option key={row.label} value={row.label} />
+            ))}
+          </datalist>
+        )}
         <button className="btn primary" disabled={busy || !q.trim()}>
           {busy ? "searching…" : "search"}
         </button>
       </form>
+
+      {mode === "classes" && (
+        <div className="filter-extras">
+          <label className="score-floor">
+            min score
+            <input
+              type="range"
+              min={0}
+              max={0.95}
+              step={0.05}
+              value={minScore}
+              onChange={(e) => setMinScore(Number(e.target.value))}
+            />
+            <span className="score-value">{minScore.toFixed(2)}</span>
+          </label>
+          {known.length > 0 && (
+            <div className="chips label-cloud">
+              {known.slice(0, 14).map((row) => (
+                <button
+                  key={row.label}
+                  className="chip as-button"
+                  title={`${row.windows} windows · best ${(row.best * 100).toFixed(0)}%`}
+                  onClick={() => {
+                    setQ(row.label)
+                    void run(row.label)
+                  }}
+                >
+                  {row.label}
+                  <span className="chip-count">{row.windows}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {error && <div className="banner error">{error}</div>}
       {results && results.length === 0 && <div className="empty">No matching audio.</div>}
@@ -59,24 +191,25 @@ export default function SearchView({
         <div className="list">
           {results.map((hit, rank) => {
             const clip = {
-              key: hit.artifact_id,
-              sessionId: hit.session_id,
-              startMs: hit.start_ms,
-              endMs: hit.end_ms,
+              key: hit.artifactId,
+              sessionId: hit.sessionId,
+              startMs: hit.startMs,
+              endMs: hit.endMs,
             }
             return (
               <div
-                key={hit.artifact_id}
+                key={hit.artifactId}
                 className="row clickable"
-                onClick={() => onOpen(hit.session_id, hit.start_ms)}
+                onClick={() => onOpen(hit.sessionId, hit.startMs)}
                 title="open in session"
               >
                 <ClipButton clip={clip} />
-                <span className="rank">#{rank + 1}</span>
+                {hit.headline === null && <span className="rank">#{rank + 1}</span>}
                 <div className="row-main">
                   <span className="row-title">
-                    {fmtClock(hit.start_ms)} – {fmtClock(hit.end_ms)}
-                    <span className="row-dim"> in {shortId(hit.session_id)}</span>
+                    {hit.headline && <span className="match-label">{hit.headline} · </span>}
+                    {fmtClock(hit.startMs)} – {fmtClock(hit.endMs)}
+                    <span className="row-dim"> in {shortId(hit.sessionId)}</span>
                   </span>
                   {hit.labels.length > 0 && (
                     <span className="chips">

@@ -108,3 +108,61 @@ async def test_search_ranks_matching_windows(
 
     anonymous = await client.get("/v1/search/audio", params={"q": "music"})
     assert anonymous.status_code == 401
+
+
+async def test_tag_filter_search(
+    worker: None, client: httpx.AsyncClient, account: Account, other_account: Account
+) -> None:
+    """The deterministic search: substring class match, calibrated score
+    floor, per-user scoping — no model in the loop (works even when the
+    embedding service would be down)."""
+    session = await _ended_session(account)
+    await _ended_session(other_account)
+    await wait_for_job(session.id, "audio-tag", JobStatus.SUCCEEDED)
+
+    # Case-insensitive substring: 'mus' finds 'Music' in both windows.
+    hits = await client.get(
+        "/v1/search/tags", params={"label": "mus"}, headers=account.headers
+    )
+    assert hits.status_code == 200
+    body = hits.json()
+    assert body["label"] == "mus" and body["min_score"] == 0.3
+    assert [(h["label"], h["score"]) for h in body["items"]] == [
+        ("Music", 0.9),
+        ("Music", 0.8),
+    ]
+    assert {h["session_id"] for h in body["items"]} == {str(session.id)}
+
+    # The floor is a real threshold: 0.85 keeps only the first window.
+    floored = await client.get(
+        "/v1/search/tags",
+        params={"label": "music", "min_score": 0.85},
+        headers=account.headers,
+    )
+    assert [h["start_ms"] for h in floored.json()["items"]] == [0]
+
+    # Speech scored 0.35 in window one only.
+    speech = await client.get(
+        "/v1/search/tags",
+        params={"label": "Speech", "min_score": 0.3},
+        headers=account.headers,
+    )
+    assert [(h["start_ms"], h["score"]) for h in speech.json()["items"]] == [(0, 0.35)]
+
+    anonymous = await client.get("/v1/search/tags", params={"label": "music"})
+    assert anonymous.status_code == 401
+
+
+async def test_tag_labels_vocabulary(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    session = await _ended_session(account)
+    await wait_for_job(session.id, "audio-tag", JobStatus.SUCCEEDED)
+
+    response = await client.get("/v1/search/tags/labels", headers=account.headers)
+    assert response.status_code == 200
+    labels = response.json()["labels"]
+    assert [(l["label"], l["windows"], l["best"]) for l in labels] == [
+        ("Music", 2, 0.9),
+        ("Speech", 1, 0.35),
+    ]

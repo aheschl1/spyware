@@ -1,10 +1,16 @@
-"""Text->audio search over the audio-tag tier's CLAP window embeddings.
+"""Audio search, two ways.
 
-The retrieval primitive for question-answering over recordings: the query is
-embedded by the classifier service's text encoder (same joint space as the
-stored window embeddings), then pgvector ranks every window the caller owns
-by cosine distance. Consumers feed the hit windows' transcripts and tags to
-an LLM; the vectors themselves never leave the database.
+- ``/search/audio`` — **contrastive**: the query text is embedded by the
+  classifier service's CLAP text encoder (same joint space as the stored
+  window embeddings), then pgvector ranks every window the caller owns by
+  cosine distance. Open vocabulary; relative distances, no absolute cutoff.
+- ``/search/tags`` — **filtering**: no model in the loop; windows are
+  matched on the tagger's stored per-class sigmoid scores (exact classes,
+  calibrated, thresholdable). ``/search/tags/labels`` lists the classes
+  actually heard, for the filter UI.
+
+Together they are the retrieval primitives for question-answering over
+recordings; consumers feed the hit windows' transcripts and tags to an LLM.
 """
 
 import math
@@ -15,7 +21,14 @@ from fastapi import APIRouter, HTTPException, Query, status
 
 from api.config import get_settings
 from api.deps import CurrentUser, Pipe
-from api.schema.search import AudioSearchRead, AudioSearchResponse
+from api.schema.search import (
+    AudioSearchRead,
+    AudioSearchResponse,
+    TagLabelRead,
+    TagLabelsResponse,
+    TagSearchRead,
+    TagSearchResponse,
+)
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -75,4 +88,38 @@ async def search_audio(
     )
     return AudioSearchResponse(
         query=q, model=model, items=[AudioSearchRead.from_model(hit) for hit in hits]
+    )
+
+
+@router.get("/tags/labels", summary="List the sound classes heard in your audio")
+async def list_tag_labels(user: CurrentUser, pipe: Pipe) -> TagLabelsResponse:
+    """Every class the tagger stored for your windows, most frequent first —
+    the vocabulary the ``/search/tags`` filter can act on."""
+    rows = await pipe.tags.labels(user_id=user.id)
+    return TagLabelsResponse(labels=[TagLabelRead.from_model(row) for row in rows])
+
+
+@router.get("/tags", summary="Find audio windows by sound-class score")
+async def search_tags(
+    user: CurrentUser,
+    pipe: Pipe,
+    label: str = Query(min_length=1, max_length=200, description="Class to match, case-insensitive substring — 'speech' finds 'Male speech, man speaking'."),
+    min_score: float = Query(0.3, ge=0.0, le=1.0, description="Keep windows where the class scored at least this."),
+    session_id: UUID | None = Query(None, description="Restrict matches to one session."),
+    limit: int = Query(20, ge=1, le=100),
+) -> TagSearchResponse:
+    """The deterministic search: exact classes with calibrated scores, best
+    first. Unlike the contrastive route, scores ARE comparable across
+    queries and a threshold means the same thing everywhere."""
+    hits = await pipe.tags.search(
+        user_id=user.id,
+        label=label,
+        min_score=min_score,
+        session_id=session_id,
+        limit=limit,
+    )
+    return TagSearchResponse(
+        label=label,
+        min_score=min_score,
+        items=[TagSearchRead.from_model(hit) for hit in hits],
     )
