@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, type TimelineEvent } from "../api/client"
 import { fmtClock } from "../format"
+import TimelineFilter, { loadHidden, type EventKind } from "./TimelineFilter"
 
 const PAGE = 200
 // Deep links load the timeline from a little before the target moment, so
@@ -32,6 +33,7 @@ export default function Timeline({
   )
   const [flashKey, setFlashKey] = useState<string | null>(null)
   const flashed = useRef(false)
+  const [hidden, setHidden] = useState<Set<EventKind>>(loadHidden)
 
   const load = useCallback(
     async (offset: number, windowStart: number | null) => {
@@ -84,6 +86,7 @@ export default function Timeline({
     const flash = key === flashKey
     switch (event.type) {
       case "transcript": {
+        if (hidden.has("transcript")) return null
         const speaker = event.speaker_name ?? event.speaker
         return (
           <div
@@ -106,7 +109,7 @@ export default function Timeline({
         )
       }
       case "audio-tag": {
-        if (event.labels.length === 0) return null
+        if (hidden.has("audio-tag") || event.labels.length === 0) return null
         return (
           <div
             key={key}
@@ -127,12 +130,14 @@ export default function Timeline({
         )
       }
       case "session-start":
+        if (hidden.has("marker")) return null
         return (
           <div key={key} className="event marker">
             session started
           </div>
         )
       case "session-end":
+        if (hidden.has("marker")) return null
         return (
           <div key={key} className="event marker">
             session ended · {fmtClock(event.at_ms)}
@@ -144,35 +149,47 @@ export default function Timeline({
     }
   })
 
+  const allFilteredOut =
+    rendered.every((node) => node === null) && hidden.size > 0 && events.length > 0
+
   return (
-    <div className="timeline">
-      {fromMs !== null && fromMs > 0 && (
-        <button
-          className="btn ghost full"
-          onClick={() => {
-            flashed.current = true // keep the view where the user is
-            setFlashKey(null)
-            setEvents(null)
-            setFromMs(null)
-          }}
-        >
-          ↑ show from the beginning (jumped to {fmtClock(fromMs + FOCUS_LEAD_MS)})
-        </button>
-      )}
-      {rendered.every((node) => node === null) ? (
-        <div className="empty">Nothing on the timeline yet — pipelines may still be running.</div>
-      ) : (
-        rendered
-      )}
-      {hasMore && (
-        <button
-          className="btn ghost full"
-          onClick={() => load(events.length, fromMs)}
-          disabled={busy}
-        >
-          {busy ? "loading…" : "more"}
-        </button>
-      )}
-    </div>
+    <>
+      <div className="timeline-toolbar">
+        <TimelineFilter hidden={hidden} onChange={setHidden} />
+      </div>
+      <div className="timeline">
+        {fromMs !== null && fromMs > 0 && (
+          <button
+            className="btn ghost full"
+            onClick={() => {
+              flashed.current = true // keep the view where the user is
+              setFlashKey(null)
+              setEvents(null)
+              setFromMs(null)
+            }}
+          >
+            ↑ show from the beginning (jumped to {fmtClock(fromMs + FOCUS_LEAD_MS)})
+          </button>
+        )}
+        {rendered.every((node) => node === null) ? (
+          <div className="empty">
+            {allFilteredOut
+              ? "Everything here is hidden by the filter."
+              : "Nothing on the timeline yet — pipelines may still be running."}
+          </div>
+        ) : (
+          rendered
+        )}
+        {hasMore && (
+          <button
+            className="btn ghost full"
+            onClick={() => load(events.length, fromMs)}
+            disabled={busy}
+          >
+            {busy ? "loading…" : "more"}
+          </button>
+        )}
+      </div>
+    </>
   )
 }

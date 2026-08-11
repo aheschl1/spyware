@@ -457,6 +457,56 @@ button.row:hover,
 
 /* ------------- timeline */
 
+.timeline-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.filter-menu {
+  position: relative;
+}
+
+.filter-menu .btn.filtered {
+  color: var(--accent-strong);
+  border-color: var(--accent);
+}
+
+.filter-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 6;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 180px;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-option:hover {
+  background: var(--accent-soft);
+}
+
+.filter-option input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
 .timeline {
   display: flex;
   flex-direction: column;
