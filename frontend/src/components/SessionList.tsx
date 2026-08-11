@@ -45,7 +45,14 @@ export default function SessionList({ onOpen }: { onOpen: (id: string) => void }
     })
   }
 
-  if (!sessions) return <div className="loading">Loading sessions…</div>
+  if (!sessions)
+    return (
+      <div className="list">
+        {[64, 64, 64, 64, 64].map((height, i) => (
+          <div key={i} className="skeleton" style={{ height }} />
+        ))}
+      </div>
+    )
   if (sessions.length === 0) return <div className="empty">No sessions yet.</div>
 
   return (

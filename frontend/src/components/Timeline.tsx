@@ -79,7 +79,14 @@ export default function Timeline({
     node?.scrollIntoView({ block: "center", behavior: "smooth" })
   }, [])
 
-  if (!events) return <div className="loading">Loading timeline…</div>
+  if (!events)
+    return (
+      <div className="list">
+        {[36, 52, 36, 68, 36].map((height, i) => (
+          <div key={i} className="skeleton" style={{ height }} />
+        ))}
+      </div>
+    )
 
   const rendered = events.map((event, index) => {
     const key = eventKey(event, index)

@@ -55,9 +55,12 @@ body {
   flex-direction: column;
 }
 
+/* Never wraps: on overflow the bar scrolls sideways (scrollbar hidden),
+   the dash pattern — tabs stay one row on any width. */
 .topbar {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
   gap: var(--gap);
   padding: 10px var(--pad);
   background: color-mix(in srgb, var(--surface) 78%, transparent);
@@ -66,6 +69,16 @@ body {
   position: sticky;
   top: 0;
   z-index: 5;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.topbar::-webkit-scrollbar {
+  display: none;
+}
+
+.topbar > * {
+  flex: 0 0 auto;
 }
 
 .brand {
@@ -122,6 +135,7 @@ body {
 .whoami {
   color: var(--text-muted);
   font-size: 13px;
+  white-space: nowrap;
 }
 
 .main {
@@ -246,6 +260,15 @@ body {
   color: transparent;
 }
 
+.gate-subtitle {
+  margin: -8px 0 6px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
 .gate-error {
   color: var(--red);
   font-size: 13px;
@@ -356,6 +379,29 @@ button.row:hover,
   color: var(--text-muted);
   padding: calc(var(--pad) * 2.5) 0;
   text-align: center;
+}
+
+/* Loading placeholders shaped like the rows they become. */
+.skeleton {
+  border-radius: var(--radius);
+  background: linear-gradient(
+    100deg,
+    var(--surface) 40%,
+    var(--surface2) 50%,
+    var(--surface) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border: 1px solid var(--border-soft);
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -80% 0;
+  }
 }
 
 .banner {
@@ -810,4 +856,55 @@ button.row:hover,
 
 .speaker-transcripts .transcript-text {
   flex: 1;
+}
+
+/* ------------- small screens */
+
+@media (max-width: 640px) {
+  :root {
+    --gap: 10px;
+    --pad: 12px;
+  }
+
+  body {
+    font-size: 14px;
+  }
+
+  .main {
+    padding: var(--pad) var(--pad) calc(var(--pad) * 3);
+  }
+
+  .whoami {
+    display: none;
+  }
+
+  .row {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .event {
+    gap: 10px;
+  }
+
+  .event-time {
+    min-width: 3.9em;
+  }
+
+  .session-header {
+    flex-wrap: wrap;
+  }
+
+  .search-bar {
+    top: 54px;
+  }
+
+  .speaker-row .row-sub {
+    display: none;
+  }
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
 }

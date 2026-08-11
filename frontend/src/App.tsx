@@ -41,7 +41,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <span className="brand">audio-pipeline</span>
+        <span className="brand">spyware</span>
         <nav className="tabs">
           {(["sessions", "search", "speakers"] as const).map((tab) => (
             <button

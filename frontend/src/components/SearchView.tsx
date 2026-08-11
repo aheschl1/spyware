@@ -115,6 +115,7 @@ export default function SearchView({
             key={value}
             className={`mode ${mode === value ? "active" : ""}`}
             onClick={() => {
+              // The query survives a mode switch; stale results don't.
               setMode(value)
               setResults(null)
               setError(null)
