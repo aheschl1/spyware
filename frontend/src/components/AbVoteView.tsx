@@ -21,7 +21,8 @@ export default function AbVoteView({
   const [ab, setAb] = useState<AbSessionRead | null>(null)
   const [focus, setFocus] = useState(0)
   const [busy, setBusy] = useState(false)
-  const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  const [showVoted, setShowVoted] = useState(false)
+  const cardRefs = useRef<Map<string, HTMLDivElement>>(new Map())
 
   const refresh = useCallback(async () => {
     const { data } = await api.GET("/v1/sessions/{session_id}/ab", {
@@ -50,6 +51,18 @@ export default function AbVoteView({
       ),
     [ab, generating],
   )
+  const unvoted = useMemo(() => votable.filter((u) => !u.vote), [votable])
+  const voted = useMemo(() => votable.filter((u) => u.vote), [votable])
+  // The keyboard walks what's on screen: the queue, plus the voted section
+  // when it's expanded.
+  const visible = useMemo(
+    () => (showVoted ? [...unvoted, ...voted] : unvoted),
+    [showVoted, unvoted, voted],
+  )
+
+  useEffect(() => {
+    setFocus((prev) => Math.min(prev, Math.max(0, visible.length - 1)))
+  }, [visible.length])
 
   const vote = useCallback(
     async (utterance: AbUtteranceRead, candidateId: string) => {
@@ -64,6 +77,8 @@ export default function AbVoteView({
       })
       setBusy(false)
       if (!data) return
+      // The card slides into the voted section; the next unvoted card takes
+      // its place at the same focus index.
       setAb((prev) =>
         prev
           ? {
@@ -77,25 +92,18 @@ export default function AbVoteView({
             }
           : prev,
       )
-      setFocus((prev) => {
-        const index = votable.findIndex(
-          (u) => u.utterance_artifact_id === utterance.utterance_artifact_id,
-        )
-        const next = votable.findIndex((u, i) => i > index && !u.vote)
-        return next === -1 ? prev : next
-      })
     },
-    [busy, sessionId, votable],
+    [busy, sessionId],
   )
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement
       if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return
-      const current = votable[focus]
+      const current = visible[focus]
       if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault()
-        setFocus((prev) => Math.min(prev + 1, votable.length - 1))
+        setFocus((prev) => Math.min(prev + 1, visible.length - 1))
       } else if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault()
         setFocus((prev) => Math.max(prev - 1, 0))
@@ -109,11 +117,64 @@ export default function AbVoteView({
     }
     document.addEventListener("keydown", handler)
     return () => document.removeEventListener("keydown", handler)
-  }, [votable, focus, sessionId, vote])
+  }, [visible, focus, sessionId, vote])
 
   useEffect(() => {
-    cardRefs.current[focus]?.scrollIntoView({ block: "nearest" })
-  }, [focus])
+    const current = visible[focus]
+    if (!current) return
+    cardRefs.current.get(current.utterance_artifact_id)?.scrollIntoView({ block: "nearest" })
+  }, [focus, visible])
+
+  const card = (utterance: AbUtteranceRead) => {
+    const index = visible.indexOf(utterance)
+    const clip = clipFor(sessionId, utterance)
+    const revealed = utterance.vote
+    return (
+      <div
+        key={utterance.utterance_artifact_id}
+        ref={(el) => {
+          if (el) cardRefs.current.set(utterance.utterance_artifact_id, el)
+          else cardRefs.current.delete(utterance.utterance_artifact_id)
+        }}
+        className={`ab-card ${index === focus ? "focused" : ""} ${revealed ? "voted" : ""}`}
+        onClick={() => index >= 0 && setFocus(index)}
+      >
+        <div className="row ab-head">
+          <ClipButton clip={clip} />
+          <span className="event-time as-span">{fmtClock(utterance.start_ms)}</span>
+          <span className="row-dim">{fmtClock(utterance.end_ms - utterance.start_ms)}</span>
+          {utterance.speaker && <span className="chip">{utterance.speaker}</span>}
+          {revealed && (
+            <span className="badge">
+              {revealed.model} · {revealed.strategy}
+            </span>
+          )}
+          <ClipProgress clip={clip} />
+        </div>
+        <div className="ab-cands">
+          {utterance.candidates.map((candidate, ci) => {
+            const winner = revealed?.candidate_id === candidate.candidate_id
+            return (
+              <button
+                key={candidate.candidate_id}
+                className={`ab-cand ${winner ? "winner" : ""}`}
+                disabled={busy}
+                onClick={() => void vote(utterance, candidate.candidate_id)}
+              >
+                <span className="rank">{LETTERS[ci] ?? ci + 1}</span>
+                {candidate.text ? (
+                  <span className="ab-cand-text">{candidate.text}</span>
+                ) : (
+                  <span className="ab-cand-text row-dim">(no words landed in this span)</span>
+                )}
+                {winner && <span className="chip strong">✓</span>}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="ab-view">
@@ -158,56 +219,23 @@ export default function AbVoteView({
         </div>
       ) : null}
 
-      <div className="list">
-        {votable.map((utterance, index) => {
-          const clip = clipFor(sessionId, utterance)
-          const revealed = utterance.vote
-          return (
-            <div
-              key={utterance.utterance_artifact_id}
-              ref={(el) => {
-                cardRefs.current[index] = el
-              }}
-              className={`ab-card ${index === focus ? "focused" : ""} ${revealed ? "voted" : ""}`}
-              onClick={() => setFocus(index)}
-            >
-              <div className="row ab-head">
-                <ClipButton clip={clip} />
-                <span className="event-time as-span">{fmtClock(utterance.start_ms)}</span>
-                <span className="row-dim">{fmtClock(utterance.end_ms - utterance.start_ms)}</span>
-                {utterance.speaker && <span className="chip">{utterance.speaker}</span>}
-                {revealed && (
-                  <span className="badge">
-                    {revealed.model} · {revealed.strategy}
-                  </span>
-                )}
-                <ClipProgress clip={clip} />
-              </div>
-              <div className="ab-cands">
-                {utterance.candidates.map((candidate, ci) => {
-                  const winner = revealed?.candidate_id === candidate.candidate_id
-                  return (
-                    <button
-                      key={candidate.candidate_id}
-                      className={`ab-cand ${winner ? "winner" : ""}`}
-                      disabled={busy}
-                      onClick={() => void vote(utterance, candidate.candidate_id)}
-                    >
-                      <span className="rank">{LETTERS[ci] ?? ci + 1}</span>
-                      {candidate.text ? (
-                        <span className="ab-cand-text">{candidate.text}</span>
-                      ) : (
-                        <span className="ab-cand-text row-dim">(no words landed in this span)</span>
-                      )}
-                      {winner && <span className="chip strong">✓</span>}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+      {ab !== null && !generating && votable.length > 0 && unvoted.length === 0 && (
+        <div className="banner">all voted — nothing left in this session 🎉</div>
+      )}
+
+      <div className="list">{unvoted.map((utterance) => card(utterance))}</div>
+
+      {voted.length > 0 && (
+        <>
+          <button
+            className="btn ghost full ab-voted-toggle"
+            onClick={() => setShowVoted((prev) => !prev)}
+          >
+            {showVoted ? "▾" : "▸"} voted ({voted.length})
+          </button>
+          {showVoted && <div className="list">{voted.map((utterance) => card(utterance))}</div>}
+        </>
+      )}
     </div>
   )
 }

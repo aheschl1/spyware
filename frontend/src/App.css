@@ -1557,6 +1557,12 @@ button.row:hover,
   gap: 10px;
 }
 
+.ab-voted-toggle {
+  color: var(--text-muted);
+  justify-content: flex-start;
+  text-align: left;
+}
+
 .ab-generating {
   display: inline-flex;
   align-items: center;
