@@ -33,6 +33,12 @@ function speakerLabel(speaker: { name?: string | null; id: string }): string {
   return speaker.name ?? shortId(speaker.id)
 }
 
+// Named clusters float to the top; sort() is stable, so each half keeps the
+// server's created-at order.
+function sortSpeakers(items: SpeakerRead[]): SpeakerRead[] {
+  return [...items].sort((a, b) => Number(b.name != null) - Number(a.name != null))
+}
+
 function Avatar({ id, name, small }: { id: string; name?: string | null; small?: boolean }) {
   return (
     <span
@@ -400,7 +406,7 @@ export default function SpeakersView({
     const { data } = await api.GET("/v1/speakers", {
       params: { query: { limit: 100, offset: 0 } },
     })
-    if (data) setSpeakers(data.items)
+    if (data) setSpeakers(sortSpeakers(data.items))
   }
   useEffect(() => {
     void refresh()
@@ -418,7 +424,9 @@ export default function SpeakersView({
     })
     setEditing(null)
     if (data) {
-      setSpeakers((prev) => (prev ?? []).map((s) => (s.id === data.id ? data : s)))
+      setSpeakers((prev) =>
+        sortSpeakers((prev ?? []).map((s) => (s.id === data.id ? data : s))),
+      )
       // Same name on two clusters usually means one split voice — offer to
       // heal it. The just-renamed cluster merges into the pre-existing one.
       const twin = (speakers ?? []).find(
@@ -489,7 +497,9 @@ export default function SpeakersView({
     setBusy(false)
     if (!data) return
     setSpeakers((prev) =>
-      (prev ?? []).filter((s) => s.id !== loserId).map((s) => (s.id === data.id ? data : s)),
+      sortSpeakers(
+        (prev ?? []).filter((s) => s.id !== loserId).map((s) => (s.id === data.id ? data : s)),
+      ),
     )
     dropCaches(loserId, data.id)
     setExpanded((prev) => (prev === loserId ? null : prev))
@@ -518,7 +528,7 @@ export default function SpeakersView({
         s.id === data.target.id ? data.target : data.source && s.id === data.source.id ? data.source : s,
       )
       if (!next.some((s) => s.id === data.target.id)) next = [...next, data.target]
-      return next
+      return sortSpeakers(next)
     })
     dropCaches(source.id, data.target.id)
     if (data.source) void loadMembers(source.id)
