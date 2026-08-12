@@ -285,7 +285,10 @@ winner's text/words into the `transcribe`/`transcript` artifact — the one
 location the timeline and search read. `GET /v1/ab/results` is the running
 model × strategy tally. Frontend: the "ab" tab (tally + enroll) and the
 per-session blinded voting page (A–D rows, keyboard 1–4/j/k/space, reveal
-after vote).
+after vote). **The first experiment concluded 2026-08 — parakeet·chunk won;
+see `docs/asr-ab-results.md`.** Whisper is disabled in the sidecar until
+re-enabled (`ASR_WHISPER_ENABLED=1`); enrolling sessions meanwhile yields
+parakeet-only candidates (whisper calls count as errors).
 
 ## The audio-tag tiers
 
