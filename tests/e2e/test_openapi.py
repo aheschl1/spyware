@@ -82,7 +82,9 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "speech-end",
         "transcript",
         "audio-tag",
+        "sound-span",
     }
+    assert "label" in schemas["SoundSpanEvent"]["properties"]
     # Transcripts never leak the storage layout; the full text is inline and
     # carries its diarized speaker (no truncation — transcripts are row-only).
     assert "bucket" not in schemas["TranscriptEvent"]["properties"]

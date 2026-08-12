@@ -64,6 +64,29 @@ def _transcript(
     )
 
 
+def _sound_span(
+    start_ms: int | None,
+    end_ms: int | None,
+    label: str = "Music",
+    peak: float | None = 0.82,
+    mean: float | None = 0.61,
+    windows: int | None = 14,
+) -> PipelineArtifact:
+    return _artifact(
+        "sound-span",
+        "sound-span",
+        start_ms,
+        end_ms,
+        {
+            "label": label,
+            "peak": peak,
+            "mean": mean,
+            "windows": windows,
+            "model": "ced-base",
+        },
+    )
+
+
 def _shape(events) -> list[tuple[str, int]]:
     return [(event.type, event.at_ms) for event in events]
 
@@ -225,3 +248,56 @@ def test_end_frame_never_precedes_the_start_frame() -> None:
 
 def test_no_artifacts_serves_only_session_frames() -> None:
     assert _shape(assemble(_session(), [])) == [("session-start", 0)]
+
+
+def test_sound_span_expands_to_one_event_carrying_its_interval() -> None:
+    row = _sound_span(5_000, 65_000)
+    events = assemble(_session(), [row])
+    assert _shape(events) == [("session-start", 0), ("sound-span", 5_000)]
+    span = events[1]
+    assert (span.start_ms, span.end_ms) == (5_000, 65_000)
+    assert (span.label, span.peak, span.mean, span.windows) == ("Music", 0.82, 0.61, 14)
+    assert span.model == "ced-base"
+    assert span.artifact_id == row.id
+
+
+def test_overlapping_sound_spans_of_different_classes_both_survive() -> None:
+    rows = [
+        _sound_span(0, 60_000, "Music"),
+        _sound_span(30_000, 90_000, "Speech"),
+    ]
+    events = assemble(_session(), rows)
+    assert _shape(events) == [
+        ("session-start", 0),
+        ("sound-span", 0),
+        ("sound-span", 30_000),
+    ]
+    assert [event.label for event in events[1:]] == ["Music", "Speech"]
+    # The intervals genuinely overlap — that is the tier's output shape.
+    assert events[2].at_ms < events[1].end_ms
+
+    shuffled = list(reversed(rows))
+    random.Random(0).shuffle(shuffled)
+    assert assemble(_session(), shuffled) == events
+
+
+def test_sound_span_tolerates_thin_metadata() -> None:
+    session = _session()
+    assert _shape(assemble(session, [_artifact("sound-span", "sound-span", 0, 10)])) == [
+        ("session-start", 0)
+    ]
+    assert _shape(assemble(session, [_sound_span(None, None)])) == [("session-start", 0)]
+
+    events = assemble(
+        session, [_artifact("sound-span", "sound-span", 0, 10, {"label": "Rain"})]
+    )
+    span = events[1]
+    assert span.label == "Rain"
+    assert (span.peak, span.mean, span.windows, span.model) == (None, None, None, None)
+
+
+def test_sound_span_window_keeps_only_spans_starting_inside() -> None:
+    # Accepted behaviour, pinned deliberately: the window filters on event
+    # position, so a span that began before it is dropped rather than clipped.
+    rows = [_sound_span(0, 600_000)]
+    assert assemble(_session(), rows, from_ms=120_000, to_ms=240_000) == []

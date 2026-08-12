@@ -10,10 +10,17 @@ import type { AudioTagEvent, TimelineEvent, TranscriptEvent } from "../api/clien
 import { fmtClock } from "../format"
 import { usePlayhead } from "../hooks/usePlayhead"
 import { hue, localLabelTail } from "../speakers"
+import {
+  SOUND_LANES_SHOWN,
+  buildSoundLanes,
+  describeSpan,
+  soundAlpha,
+  soundBorderAlpha,
+} from "../sounds"
 import SpeakerChip from "./SpeakerChip"
 
 // The visual session timeline: one lane per voice, utterance blocks placed at
-// [start_ms, end_ms), a sounds lane from the audio tagger, a smooth playhead
+// [start_ms, end_ms), one lane per sound class beneath them, a smooth playhead
 // riding the main <audio> element. Click anywhere to listen there; drag to
 // scrub; ctrl/pinch-wheel zooms around the cursor; plain wheel pans when
 // zoomed. The block/ruler DOM is memoized — while playing, only the playhead
@@ -120,6 +127,8 @@ export default function TimelineStrip({
   const programmaticScroll = useRef(false)
   const userScrollUntil = useRef(0)
 
+  const [showAllSounds, setShowAllSounds] = useState(false)
+
   const lanes = useMemo(() => buildLanes(events), [events])
   const tagBlocks = useMemo(
     () =>
@@ -128,6 +137,14 @@ export default function TimelineStrip({
       ),
     [events],
   )
+  const soundLanes = useMemo(() => buildSoundLanes(events), [events])
+  const visibleSoundLanes = useMemo(
+    () => (showAllSounds ? soundLanes : soundLanes.slice(0, SOUND_LANES_SHOWN)),
+    [soundLanes, showAllSounds],
+  )
+  // The raw ~10s tag lane is what the span lanes replace. Keep it only for
+  // sessions the span tier hasn't reached, so nothing regresses to blank.
+  const showTagLane = soundLanes.length === 0 && tagBlocks.length > 0
 
   const audioDurationMs = useAudioDuration(audioEl)
   const durationMs = useMemo(() => {
@@ -258,7 +275,48 @@ export default function TimelineStrip({
             </div>
           )
         })}
-        {tagBlocks.length > 0 && (
+        {visibleSoundLanes.map((lane, i) => {
+          const color = hue(lane.label)
+          const last = i === visibleSoundLanes.length - 1
+          return (
+            <div
+              key={`sound:${lane.label}`}
+              className={`strip-lane sound${i === 0 ? " sound-first" : ""}${
+                last ? " sound-last" : ""
+              }`}
+              style={{ height: LANE_H }}
+            >
+              {lane.spans.map((span) => (
+                <div
+                  key={span.artifact_id}
+                  className="strip-block sound"
+                  style={{
+                    left: `${(span.start_ms / durationMs) * 100}%`,
+                    width: `${
+                      (Math.max(200, span.end_ms - span.start_ms) / durationMs) * 100
+                    }%`,
+                    background: `hsl(${color} 55% 55% / ${soundAlpha(span)})`,
+                    borderColor: `hsl(${color} 60% 62% / ${soundBorderAlpha(span)})`,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSeek(span.start_ms, true)
+                  }}
+                  onPointerMove={(e) =>
+                    showBlockTip(e, {
+                      color: `hsl(${color} 62% 58%)`,
+                      title: lane.label,
+                      time: `${fmtClock(span.start_ms)}–${fmtClock(span.end_ms)}`,
+                      text: describeSpan(span),
+                    })
+                  }
+                  onPointerLeave={hideTip}
+                />
+              ))}
+            </div>
+          )
+        })}
+        {showTagLane && (
           <div className="strip-lane tags" style={{ height: LANE_H }}>
             {tagBlocks.map((block) => (
               <div
@@ -287,21 +345,50 @@ export default function TimelineStrip({
         )}
       </>
     )
-  }, [lanes, tagBlocks, durationMs, viewportW, zoom, onSeek, showBlockTip, hideTip])
+  }, [
+    lanes,
+    visibleSoundLanes,
+    showTagLane,
+    tagBlocks,
+    durationMs,
+    viewportW,
+    zoom,
+    onSeek,
+    showBlockTip,
+    hideTip,
+  ])
 
-  if (durationMs <= 0 || (lanes.length === 0 && tagBlocks.length === 0)) return null
+  if (
+    durationMs <= 0 ||
+    (lanes.length === 0 && soundLanes.length === 0 && tagBlocks.length === 0)
+  )
+    return null
 
-  const canvasH = RULER_H + LANE_H * (lanes.length + (tagBlocks.length > 0 ? 1 : 0))
+  const canvasH =
+    RULER_H + LANE_H * (lanes.length + visibleSoundLanes.length + (showTagLane ? 1 : 0))
 
   return (
     <div className="strip">
       <div className="strip-toolbar">
         <span className="strip-title">
           {lanes.length} voice{lanes.length === 1 ? "" : "s"}
+          {soundLanes.length > 0 &&
+            ` · ${soundLanes.length} sound${soundLanes.length === 1 ? "" : "s"}`}
           {truncated && (
             <span className="row-dim"> · long session — strip shows the first part</span>
           )}
         </span>
+        {soundLanes.length > SOUND_LANES_SHOWN && (
+          <button
+            className="chip as-button"
+            title="show every sound class, not just the most confident"
+            onClick={() => setShowAllSounds((v) => !v)}
+          >
+            {showAllSounds
+              ? `top ${SOUND_LANES_SHOWN} sounds`
+              : `+${soundLanes.length - SOUND_LANES_SHOWN} more sounds`}
+          </button>
+        )}
         <button
           className={`chip as-button ${follow ? "strong" : ""}`}
           title="keep the playhead and transcript in view while playing"
@@ -351,7 +438,26 @@ export default function TimelineStrip({
               <span className="strip-talk">{fmtClock(lane.talkMs)}</span>
             </div>
           ))}
-          {tagBlocks.length > 0 && (
+          {visibleSoundLanes.map((lane, i) => (
+            <div
+              key={`sound:${lane.label}`}
+              className={`strip-head${i === 0 ? " sound-first" : ""}`}
+              style={{ height: LANE_H }}
+            >
+              <span
+                className="strip-head-sound"
+                title={`${lane.label} · ${fmtClock(lane.coveredMs)} covered`}
+              >
+                <span
+                  className="speaker-dot"
+                  style={{ background: `hsl(${hue(lane.label)} 62% 58%)` }}
+                />
+                {lane.label}
+              </span>
+              <span className="strip-talk">{lane.peak.toFixed(2)}</span>
+            </div>
+          ))}
+          {showTagLane && (
             <div className="strip-head" style={{ height: LANE_H }}>
               <span className="strip-head-tags">sounds</span>
             </div>

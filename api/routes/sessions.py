@@ -164,14 +164,16 @@ async def get_session_timeline(
     from_ms: int | None = Query(None, ge=0, description="Only events at/after this time."),
     to_ms: int | None = Query(None, ge=0, description="Only events before this time."),
 ) -> Page[TimelineEvent]:
-    """What happened when: session frames, speech starts/ends, transcripts.
+    """What happened when: session frames, speech starts/ends, transcripts,
+    sound tags and the sound spans built from them.
 
     Events carry a ``type`` discriminator; clients must ignore types they do
     not recognise — future processing tiers add new ones. `limit`/`offset`
     page over events (one artifact can yield several, so offsets here do not
     line up with the artifacts route). A `from_ms`/`to_ms` window keeps only
     events positioned inside it, so adjacent windows partition the stream —
-    a span straddling a boundary contributes its `speech-end` alone.
+    a span straddling a boundary contributes its `speech-end` alone, and a
+    `sound-span` that began before the window is left out entirely.
 
     An unprocessed (or speechless) session serves just its session frames;
     processing status stays introspectable via `.../artifacts?kind=speech-map`.

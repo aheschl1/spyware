@@ -270,14 +270,16 @@ export interface paths {
         };
         /**
          * A session's ordered event timeline
-         * @description What happened when: session frames, speech starts/ends, transcripts.
+         * @description What happened when: session frames, speech starts/ends, transcripts,
+         *     sound tags and the sound spans built from them.
          *
          *     Events carry a ``type`` discriminator; clients must ignore types they do
          *     not recognise — future processing tiers add new ones. `limit`/`offset`
          *     page over events (one artifact can yield several, so offsets here do not
          *     line up with the artifacts route). A `from_ms`/`to_ms` window keeps only
          *     events positioned inside it, so adjacent windows partition the stream —
-         *     a span straddling a boundary contributes its `speech-end` alone.
+         *     a span straddling a boundary contributes its `speech-end` alone, and a
+         *     `sound-span` that began before the window is left out entirely.
          *
          *     An unprocessed (or speechless) session serves just its session frames;
          *     processing status stays introspectable via `.../artifacts?kind=speech-map`.
@@ -1463,6 +1465,73 @@ export interface components {
             match: boolean;
         };
         /**
+         * SoundSpanEvent
+         * @description One continuous stretch of a single sound class over ``[start_ms,
+         *     end_ms)``; positioned at the start.
+         *
+         *     Spans of different classes overlap freely; spans of one class never do.
+         *     Edges are the union of the classified windows behind them, so they are
+         *     smeared by up to one window either way and are not event onsets.
+         */
+        SoundSpanEvent: {
+            /**
+             * At Ms
+             * @description Position of this event on the session timeline, ms.
+             */
+            at_ms: number;
+            /**
+             * Artifact Id
+             * Format: uuid
+             * @description The pipeline artifact this event derives from.
+             */
+            artifact_id: string;
+            /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "sound-span";
+            /**
+             * Start Ms
+             * @description Start of the span, ms.
+             */
+            start_ms: number;
+            /**
+             * End Ms
+             * @description End (exclusive) of the span, ms.
+             */
+            end_ms: number;
+            /**
+             * Label
+             * @description The class that held, e.g. ``Music``.
+             */
+            label: string;
+            /**
+             * Peak
+             * @description Best window score inside the span.
+             */
+            peak?: number | null;
+            /**
+             * Mean
+             * @description Mean window score across the span — how solidly the class held, where peak is how loudly it announced itself.
+             */
+            mean?: number | null;
+            /**
+             * Windows
+             * @description How many classified windows the span merges.
+             */
+            windows?: number | null;
+            /**
+             * Model
+             * @description The tagging model behind the scores.
+             */
+            model?: string | null;
+        };
+        /**
          * SpeakerLabelRequest
          * @description Body of ``POST /speakers/{id}/label``. ``name`` is required so an
          *     empty body is a 422, never a silent clear; send an explicit null to
@@ -1791,7 +1860,7 @@ export interface components {
             /** Items */
             items: components["schemas"]["TagSearchRead"][];
         };
-        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"];
+        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"] | components["schemas"]["SoundSpanEvent"];
         /**
          * TokenIssued
          * @description The plaintext exists exactly once, here; the server stores only a hash.
@@ -1868,7 +1937,7 @@ export interface components {
             model?: string | null;
             /**
              * Speaker
-             * @description Diarized speaker of the utterance (block-namespaced, e.g. ``b109176:SPEAKER_00``); labels are stable within a block only.
+             * @description Diarized speaker of the utterance (block-namespaced, e.g. ``b109176:SPEAKER_00``); labels are stable within a block only. A ``.N`` suffix (``b109176:SPEAKER_00.1``) marks a sub-label minted by the purity audit when one diarizer label held several voices.
              */
             speaker?: string | null;
             /**
