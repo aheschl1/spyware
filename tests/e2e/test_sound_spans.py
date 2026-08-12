@@ -95,7 +95,11 @@ async def test_stub_windows_merge_into_one_span(worker: None, clean_state) -> No
     assert span_map.metadata["classes"] == [
         {"label": "Music", "spans": 1, "total_ms": 300, "peak": 0.9}
     ]
-    assert span_map.metadata["params"]["enter"] == 0.35
+    # Against in-process settings, not a literal: conftest pins stub-scale
+    # thresholds and the worker must have used the same ones.
+    from processing.config import get_settings
+
+    assert span_map.metadata["params"]["enter"] == get_settings().sound_span_enter_score
     assert span.links["audio_tag_map"] == span_map.metadata["source_map"]
 
 

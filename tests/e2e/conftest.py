@@ -143,6 +143,12 @@ def test_env(
         # split before the purity audit could be exercised.
         "PROCESSING_DIARIZE_TURN_MIN_CLEAN_MS": "100",
         "PROCESSING_DIARIZE_SPLIT_MIN_CLEAN_MS": "200",
+        # The stub tagger answers exactly two windows and the seeded grids
+        # are just as small; the production thresholds are calibrated for
+        # real-length audio and would drop every stub-scale span.
+        "PROCESSING_SOUND_SPAN_ENTER_SCORE": "0.35",
+        "PROCESSING_SOUND_SPAN_SUSTAIN_SCORE": "0.20",
+        "PROCESSING_SOUND_SPAN_MIN_WINDOWS": "2",
     }
     os.environ.update(env)
 
