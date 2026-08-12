@@ -210,6 +210,40 @@ async def test_retranscribe_regenerates_transcripts(worker: None, clean_state) -
     assert all(t.metadata["words"] for t in fresh)
 
 
+async def test_requeued_utterances_skip_existing_transcripts(
+    worker: None, clean_state
+) -> None:
+    """Lost job history with surviving transcripts (a retranscribe racing an
+    in-flight job) must not duplicate rows: the re-run skips on the
+    data-level guard."""
+    account = await make_account()
+    session, _ = await _ended_session_with_segments(account)
+    async with DatabasePipe() as pipe:
+        await pipe.sessions.end(session.id)
+    await wait_for_job(session.id, "transcribe", JobStatus.SUCCEEDED)
+    originals = {t.id for t in await _wait_for_transcripts(session.id, 2)}
+
+    async with DatabasePipe() as pipe:
+        assert await pipe.jobs.delete_for_session(session.id, "transcribe") == 2
+
+    deadline = time.monotonic() + 15.0
+    jobs: list = []
+    while time.monotonic() < deadline:
+        async with DatabasePipe() as pipe:
+            jobs = [
+                j
+                for j in await pipe.jobs.list_for_session(session.id)
+                if j.pipeline == "transcribe"
+            ]
+        if len(jobs) == 2 and all(j.status == JobStatus.SUCCEEDED for j in jobs):
+            break
+        await asyncio.sleep(0.1)
+    assert all(
+        j.result == {"skipped": "transcript already exists"} for j in jobs
+    ), jobs
+    assert {t.id for t in await _wait_for_transcripts(session.id, 2)} == originals
+
+
 async def test_speech_is_diarized_with_embeddings(worker: None, clean_state) -> None:
     """The diarize tier: one block, block-namespaced turns, pgvector rows.
 

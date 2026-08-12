@@ -114,6 +114,13 @@ class TranscribePipeline(Pipeline):
             # orphan through; add FOR KEY SHARE here if one is ever observed.)
             if await pipe.artifacts.get(job.artifact_id) is None:
                 return {"skipped": "utterance deleted during transcription"}
+            # retranscribe deletes job history and can race an in-flight
+            # job into a second run for the same utterance; job dedup no
+            # longer guards that, so the data does.
+            if await TranscribeQueries(pipe.connection).transcript_exists(
+                job.artifact_id
+            ):
+                return {"skipped": "transcript already exists"}
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,
