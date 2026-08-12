@@ -20,6 +20,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from database.config import DatabaseSettings, get_settings
 from database.repos.artifacts import ArtifactsRepo
+from database.repos.cluster_params import ClusterParamsRepo
 from database.repos.embeddings import AudioEmbeddingsRepo, EmbeddingsRepo
 from database.repos.jobs import JobsRepo
 from database.repos.segments import SegmentsRepo
@@ -139,6 +140,10 @@ class DatabasePipe:
     @cached_property
     def speakers(self) -> SpeakersRepo:
         return SpeakersRepo(self.connection)
+
+    @cached_property
+    def cluster_params(self) -> ClusterParamsRepo:
+        return ClusterParamsRepo(self.connection)
 
     @cached_property
     def tags(self) -> TagsRepo:

@@ -401,33 +401,51 @@ async def speakers_list(email: str) -> None:
 
 @speakers.command("recluster")
 @click.argument("email")
+@click.option(
+    "--distance",
+    type=float,
+    default=None,
+    help="One-off clustering threshold; defaults to the saved override or config.",
+)
+@click.option(
+    "--min-talk-ms",
+    type=int,
+    default=None,
+    help="One-off voice-print gate; same fallback.",
+)
 @click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
 @async_command
-async def speakers_recluster(email: str, yes: bool) -> None:
-    """Rebuild a user's clusters from scratch (drift correction).
+async def speakers_recluster(
+    email: str, distance: float | None, min_talk_ms: int | None, yes: bool
+) -> None:
+    """Rebuild a user's clusters (the same batch every session-end runs).
 
     Named clusters survive as identity anchors and reclaim their members;
-    unlabeled cluster ids churn. Safe to run any time — assignments are
-    derived data.
+    pinned voice-prints keep their asserted identity; unlabeled cluster ids
+    churn. Safe to run any time — assignments are derived data.
     """
     from processing.config import get_settings as processing_settings
-    from processing.pipelines.speaker_cluster import cluster_batch
+    from processing.pipelines.speaker_cluster import rebuild_user_clusters
 
     if not yes:
         click.confirm(
             f"rebuild all speaker clusters for {email}? (named clusters survive)",
             abort=True,
         )
+    overrides: dict = {}
+    if distance is not None:
+        overrides["cluster_distance"] = distance
+    if min_talk_ms is not None:
+        overrides["cluster_min_talk_ms"] = min_talk_ms
     async with DatabasePipe() as pipe:
         user = await _require_user(pipe, email)
-        cleared = await pipe.speakers.clear_assignments_for_user(user.id)
-        dropped = await pipe.speakers.delete_unlabeled_for_user(user.id)
-        candidates = await pipe.speakers.unassigned_for_user(user.id)
-        result = await cluster_batch(pipe, user.id, candidates, processing_settings())
+        result = await rebuild_user_clusters(
+            pipe, user.id, processing_settings(), overrides or None
+        )
     click.echo(
-        f"cleared {cleared} assignment(s), dropped {dropped} unlabeled cluster(s); "
-        f"reassigned {result['assigned']} + {result['created']} into new clusters, "
-        f"merged {result['merged']}, skipped {result['skipped_short']} short"
+        f"{result['assigned']} voice-print(s) across {result['clusters']} "
+        f"cluster(s); {result['pinned']} pinned, {result['skipped_short']} "
+        f"skipped short"
     )
 
 

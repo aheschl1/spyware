@@ -92,15 +92,15 @@ class ProcessingSettings(BaseSettings):
     audio_tag_min_consecutive: int = 2
     audio_tag_top_k: int = 15
 
-    # Speaker clustering tier: cosine distances over per-(block, speaker)
-    # embeddings. Assign attaches an embedding to its nearest cluster; merge
-    # (stricter) collapses clusters whose centroids converge. Embeddings from
-    # under min_talk_ms of speech are skipped as unreliable voice-prints.
-    # Calibrated on real glasses sessions (pyannote 3.1 / wespeaker): the
-    # same voice spreads up to ~0.6 across blocks and sessions; known
-    # different voices in one conversation sat at ~0.9.
-    cluster_assign_max_distance: float = 0.60
-    cluster_merge_max_distance: float = 0.50
+    # Speaker clustering tier: batch agglomerative clustering (average
+    # linkage, cosine) over per-(block, speaker) embeddings; merging stops at
+    # this distance. Embeddings from under min_talk_ms of speech are skipped
+    # as unreliable voice-prints. Both are env DEFAULTS — a cluster_params
+    # row overrides them per user. Calibrated on real glasses sessions
+    # (pyannote 3.1 / wespeaker): the same voice spreads up to ~0.6 across
+    # blocks and sessions; known different voices in one conversation sat at
+    # ~0.9.
+    cluster_distance: float = 0.65
     cluster_min_talk_ms: int = 3_000
 
 

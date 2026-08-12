@@ -424,6 +424,67 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/speakers/cluster-params": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Your clustering knobs */
+        get: operations["get_cluster_params_v1_speakers_cluster_params_get"];
+        put?: never;
+        /**
+         * Override clustering knobs
+         * @description Persist per-field overrides (null = keep inheriting the default).
+         *     They apply to every future rebuild — the worker's per-session runs, the
+         *     CLI, and the recluster route alike.
+         */
+        post: operations["set_cluster_params_v1_speakers_cluster_params_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/cluster-params/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop all overrides */
+        post: operations["reset_cluster_params_v1_speakers_cluster_params_reset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/recluster": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rebuild your clusters now
+         * @description The same batch every session-end runs, on demand — named identities
+         *     and pinned voice-prints survive; unnamed cluster ids churn.
+         */
+        post: operations["recluster_v1_speakers_recluster_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/speakers/{speaker_id}": {
         parameters: {
             query?: never;
@@ -502,6 +563,69 @@ export interface paths {
          *     ``avg()`` error out across dimensions.
          */
         post: operations["merge_speaker_v1_speakers__speaker_id__merge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/{speaker_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect a cluster's voice-prints
+         * @description Farthest-from-centroid first, so likely wrong voices surface on top;
+         *     each row carries a playable utterance span when diarize produced one.
+         */
+        get: operations["list_speaker_members_v1_speakers__speaker_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/reassign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a voice-print to another identity
+         * @description Pin + move in one step: the print lands in the target cluster and a
+         *     pin keeps it there through every rebuild. A null target ejects it into a
+         *     fresh cluster. An emptied unnamed source dissolves.
+         */
+        post: operations["reassign_member_v1_speakers__speaker_id__members__artifact_id__reassign_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/unpin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release a voice-print's pin
+         * @description The assignment stands until the next rebuild decides freely.
+         */
+        post: operations["unpin_member_v1_speakers__speaker_id__members__artifact_id__unpin_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -785,6 +909,51 @@ export interface components {
             score: number;
         };
         /**
+         * ClusterParamsOverrides
+         * @description Per-field overrides; null = inherit the server default for that field.
+         *
+         *     Doubles as the ``POST /speakers/cluster-params`` body — every key is
+         *     required so a partial body is a 422, never a silent clear.
+         */
+        ClusterParamsOverrides: {
+            /**
+             * Cluster Distance
+             * @description Override, or null to inherit the default.
+             */
+            cluster_distance: number | null;
+            /**
+             * Min Talk Ms
+             * @description Override, or null to inherit the default.
+             */
+            min_talk_ms: number | null;
+        };
+        /**
+         * ClusterParamsRead
+         * @description The user's clustering configuration: what applies, what they pinned,
+         *     and what the server would use on its own.
+         */
+        ClusterParamsRead: {
+            effective: components["schemas"]["ClusterParamsValues"];
+            overrides: components["schemas"]["ClusterParamsOverrides"];
+            defaults: components["schemas"]["ClusterParamsValues"];
+        };
+        /**
+         * ClusterParamsValues
+         * @description A complete, resolved set of clustering knobs.
+         */
+        ClusterParamsValues: {
+            /**
+             * Cluster Distance
+             * @description Agglomeration stops at this cosine distance.
+             */
+            cluster_distance: number;
+            /**
+             * Min Talk Ms
+             * @description Voice-prints from less speech than this are not clustered.
+             */
+            min_talk_ms: number;
+        };
+        /**
          * ErrorResponse
          * @description The body of every non-2xx response.
          */
@@ -871,6 +1040,20 @@ export interface components {
              */
             has_more: boolean;
         };
+        /** Page[SpeakerMemberRead] */
+        Page_SpeakerMemberRead_: {
+            /** Items */
+            items: components["schemas"]["SpeakerMemberRead"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Has More
+             * @description True when more rows exist past this slice.
+             */
+            has_more: boolean;
+        };
         /** Page[SpeakerRead] */
         Page_SpeakerRead_: {
             /** Items */
@@ -938,6 +1121,32 @@ export interface components {
             database: boolean;
             /** Storage */
             storage: boolean;
+        };
+        /**
+         * ReclusterResponse
+         * @description Counts from one batch rebuild.
+         */
+        ReclusterResponse: {
+            /**
+             * Clusters
+             * @description Resulting cluster count.
+             */
+            clusters: number;
+            /**
+             * Assigned
+             * @description Voice-prints placed in a cluster.
+             */
+            assigned: number;
+            /**
+             * Pinned
+             * @description Voice-prints held by a user pin.
+             */
+            pinned: number;
+            /**
+             * Skipped Short
+             * @description Voice-prints under the talk gate.
+             */
+            skipped_short: number;
         };
         /**
          * SegmentRead
@@ -1205,6 +1414,49 @@ export interface components {
             name: string | null;
         };
         /**
+         * SpeakerMemberRead
+         * @description One voice-print of a cluster, for the inspection view. ``distance``
+         *     is to the cluster centroid — outliers (likely wrong voices) rank high.
+         *     The clip is the voice's longest utterance in its block, playable
+         *     directly; null when diarize produced no utterance for it.
+         */
+        SpeakerMemberRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Started At
+             * Format: date-time
+             * @description The session's start time.
+             */
+            started_at: string;
+            /**
+             * Speaker
+             * @description Block-local diarization label (provenance).
+             */
+            speaker: string;
+            /** Talk Ms */
+            talk_ms?: number | null;
+            /** Distance */
+            distance: number;
+            /**
+             * Pinned
+             * @description Held to this identity by a user pin.
+             */
+            pinned: boolean;
+            /** Clip Start Ms */
+            clip_start_ms?: number | null;
+            /** Clip End Ms */
+            clip_end_ms?: number | null;
+        };
+        /**
          * SpeakerMergeRequest
          * @description Body of ``POST /speakers/{id}/merge``: fold the path speaker into
          *     this one. The survivor keeps its id (and its name, unless it has none
@@ -1263,6 +1515,34 @@ export interface components {
             updated_at: string;
         };
         /**
+         * SpeakerReassignRequest
+         * @description Body of ``POST /speakers/{id}/members/{artifact_id}/reassign``: move
+         *     one voice-print to another identity and pin it there. A null target
+         *     ejects it into a fresh cluster (named via ``name`` — recommended: an
+         *     unnamed pair of clusters may legitimately re-merge on the next rebuild).
+         */
+        SpeakerReassignRequest: {
+            /**
+             * Into Speaker Id
+             * @description Target cluster, or null to eject into a new one.
+             */
+            into_speaker_id: string | null;
+            /**
+             * Name
+             * @description Label for the new cluster when ejecting.
+             */
+            name?: string | null;
+        };
+        /**
+         * SpeakerReassignResponse
+         * @description Both sides after a move; ``source`` is null when the move emptied an
+         *     unnamed cluster and it was dissolved.
+         */
+        SpeakerReassignResponse: {
+            source: components["schemas"]["SpeakerRead"] | null;
+            target: components["schemas"]["SpeakerRead"];
+        };
+        /**
          * SpeakerTranscriptRead
          * @description One utterance's transcript, resolved through a speaker cluster.
          */
@@ -1298,6 +1578,15 @@ export interface components {
              * @description The transcription model.
              */
             model?: string | null;
+        };
+        /**
+         * SpeakerUnpinResponse
+         * @description Acknowledges a pin removal; the assignment itself stands until the
+         *     next rebuild decides.
+         */
+        SpeakerUnpinResponse: {
+            /** Unpinned */
+            unpinned: boolean;
         };
         /**
          * SpeechEndEvent
@@ -2649,6 +2938,171 @@ export interface operations {
             };
         };
     };
+    get_cluster_params_v1_speakers_cluster_params_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterParamsRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_cluster_params_v1_speakers_cluster_params_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClusterParamsOverrides"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterParamsRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reset_cluster_params_v1_speakers_cluster_params_reset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClusterParamsRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    recluster_v1_speakers_recluster_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReclusterResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_speaker_v1_speakers__speaker_id__get: {
         parameters: {
             query?: never;
@@ -2826,6 +3280,165 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpeakerRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_speaker_members_v1_speakers__speaker_id__members_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A speaker cluster belonging to you. */
+                speaker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_SpeakerMemberRead_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reassign_member_v1_speakers__speaker_id__members__artifact_id__reassign_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+                /** @description A speaker cluster belonging to you. */
+                speaker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SpeakerReassignRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeakerReassignResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    unpin_member_v1_speakers__speaker_id__members__artifact_id__unpin_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+                /** @description A speaker cluster belonging to you. */
+                speaker_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeakerUnpinResponse"];
                 };
             };
             /** @description Unauthorized */

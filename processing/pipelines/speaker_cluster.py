@@ -1,34 +1,45 @@
-"""Tier: global speaker identity — cluster voice embeddings into speakers.
+"""Tier: global speaker identity — batch-cluster voice embeddings.
 
-Consumes each session's ``diarize-map`` (one job per session) and attaches
-that session's unassigned embeddings to the user's ``speakers`` clusters:
-nearest centroid within ``cluster_assign_max_distance`` wins, otherwise a new
-(unlabeled) cluster is born. A merge pass then collapses clusters whose
-centroids converged. Everything is scoped to (user, embedding model) —
-pgvector distance/avg error on mixed dimensions, and cross-model embeddings
-are not comparable anyway.
+Consumes each session's ``diarize-map`` (one job per session), but every run
+re-clusters the user's **entire corpus** with constrained agglomerative
+clustering (average linkage, cosine, one distance threshold): batch
+re-clustering is order-independent and self-healing, where the old
+attach-to-nearest-centroid design let one borderline assignment drag a
+centroid between voices and snowball. Everything is scoped to (user,
+embedding model) — cross-model embeddings are not comparable.
 
-Drift control: embeddings are processed longest-speech-first so strong
-voice-prints seed clusters; centroids are always the mean of *current*
-members (never an unbounded running walk); and ``cli speakers recluster``
-rebuilds a user from scratch — named clusters survive it as identity anchors,
-so drift is never permanent.
+User curation persists as **constraints**, not state: ``speaker_pins`` rows
+assert "this voice-print IS this identity". Pin-groups enter the
+agglomeration pre-merged (must-link) and two clusters pinned to different
+identities never merge (cannot-link), so manual merges and member moves
+survive every rebuild. Cluster ids are otherwise ephemeral: after each run
+result clusters are matched back to persistent ``speakers`` rows — pinned
+identity first, else majority previous membership preferring named clusters
+(named identities keep their id), else unnamed rows churn.
 
 Assignments live in ``speaker_embeddings.speaker_id`` and cascade away with
-diarize republication; the fresh diarize-map re-triggers clustering. Local
-labels on transcripts are never rewritten — global identity stays a
-resolve-at-read mapping.
+diarize republication (pins too — embeddings regenerate under new artifact
+ids); the fresh diarize-map re-triggers clustering. Local labels on
+transcripts are never rewritten — global identity stays a resolve-at-read
+mapping.
+
+Batch runs are serialized per user by a transaction-scoped advisory lock:
+the worker job, ``cli speakers recluster`` and ``POST /v1/speakers/recluster``
+all funnel through :func:`rebuild_user_clusters`.
 """
 
 import logging
-import math
+from collections import Counter
 from collections.abc import Sequence
 from typing import Any
+from uuid import UUID
+
+import numpy as np
 
 from database.pipe import DatabasePipe
 from database.repos.pipelines.speaker_cluster import SpeakerClusterQueries
 from database.schema.jobs import Job, JobCreate
-from database.schema.speakers import ClusterCandidate, Speaker, SpeakerCreate
+from database.schema.speakers import CorpusEmbedding, SpeakerCreate
 from processing.base import Pipeline
 from processing.config import ProcessingSettings, get_settings
 
@@ -37,116 +48,228 @@ logger = logging.getLogger(__name__)
 _SOURCE_PIPELINE = "diarize"
 
 
-def cosine_distance(a: Sequence[float], b: Sequence[float]) -> float:
-    """1 - cosine similarity; 1.0 for degenerate (zero or mismatched) input."""
-    if len(a) != len(b):
-        return 1.0
-    dot = sum(x * y for x, y in zip(a, b))
-    norm = math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b))
-    if norm == 0.0:
-        return 1.0
-    return 1.0 - dot / norm
+def cluster_corpus(
+    vectors: Sequence[Sequence[float]],
+    pins: dict[int, Any],
+    threshold: float,
+) -> list[list[int]]:
+    """Constrained agglomerative clustering; returns clusters of indices.
 
-
-def pick_survivor(a: Speaker, b: Speaker, members: dict) -> tuple[Speaker, Speaker]:
-    """(survivor, loser): named beats unnamed, then more members, then older.
-
-    The survivor keeps its id and name — merging must never delete a
-    user-visible labeled identity in favour of an anonymous one.
+    Average linkage over cosine distance via the Lance–Williams update
+    (``d(k, i∪j) = (nᵢ·d(k,i) + nⱼ·d(k,j)) / (nᵢ+nⱼ)`` — the exact mean of
+    pairwise point distances). ``pins`` maps an index to an identity key:
+    same-identity indices are force-merged before agglomeration begins
+    (must-link), and pairs of clusters carrying different identities get an
+    infinite distance (cannot-link) — infinity survives the weighted-average
+    update, so anything later folded into a pinned cluster inherits its bans.
+    Deterministic: ties resolve to the lowest flat matrix index.
     """
-    def rank(speaker: Speaker) -> tuple:
-        return (
-            speaker.name is not None,
-            members.get(speaker.id, 0),
-            -speaker.created_at.timestamp(),
+    n = len(vectors)
+    if n == 0:
+        return []
+    matrix = np.asarray(vectors, dtype=float)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0
+    unit = matrix / norms
+    dist = np.maximum(1.0 - unit @ unit.T, 0.0)
+    np.fill_diagonal(dist, np.inf)
+
+    size = np.ones(n)
+    active = np.ones(n, dtype=bool)
+    members: list[list[int]] = [[i] for i in range(n)]
+    tags: list[Any] = [None] * n
+
+    def merge(keep: int, drop: int) -> None:
+        combined = (size[keep] * dist[keep] + size[drop] * dist[drop]) / (
+            size[keep] + size[drop]
         )
+        dist[keep, :] = combined
+        dist[:, keep] = combined
+        dist[keep, keep] = np.inf
+        dist[drop, :] = np.inf
+        dist[:, drop] = np.inf
+        size[keep] += size[drop]
+        active[drop] = False
+        members[keep].extend(members[drop])
+        members[drop] = []
+        if tags[keep] is None:
+            tags[keep] = tags[drop]
 
-    survivor = max((a, b), key=rank)
-    return (survivor, a if survivor is b else b)
+    groups: dict[Any, list[int]] = {}
+    for index in sorted(pins):
+        groups.setdefault(pins[index], []).append(index)
+    for indices in sorted(groups.values(), key=lambda ids: ids[0]):
+        head = indices[0]
+        tags[head] = pins[head]
+        for other in indices[1:]:
+            merge(head, other)
+    representatives = [indices[0] for indices in groups.values()]
+    for i, a in enumerate(representatives):
+        for b in representatives[i + 1 :]:
+            dist[a, b] = np.inf
+            dist[b, a] = np.inf
+
+    while True:
+        flat = int(np.argmin(dist))
+        i, j = divmod(flat, n)
+        if not dist[i, j] <= threshold:  # also catches all-inf (nothing allowed)
+            break
+        merge(i, j)
+    return [members[k] for k in range(n) if active[k]]
 
 
-async def cluster_batch(
+async def settings_for_user(
+    pipe: DatabasePipe, user_id: Any, base: ProcessingSettings
+) -> ProcessingSettings:
+    """Layer the user's persisted overrides (NULL field = inherit) over env."""
+    row = await pipe.cluster_params.get(user_id)
+    if row is None:
+        return base
+    update: dict[str, Any] = {}
+    if row.cluster_distance is not None:
+        update["cluster_distance"] = row.cluster_distance
+    if row.min_talk_ms is not None:
+        update["cluster_min_talk_ms"] = row.min_talk_ms
+    return base.model_copy(update=update) if update else base
+
+
+async def lock_user_clustering(pipe: DatabasePipe, user_id: Any) -> None:
+    """Serialize batch runs per user (worker vs CLI vs API) for the
+    transaction's lifetime — two concurrent rebuilds would trample."""
+    await pipe.connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0))",
+        (str(user_id),),
+    )
+
+
+async def rebuild_user_clusters(
     pipe: DatabasePipe,
     user_id: Any,
-    candidates: Sequence[ClusterCandidate],
-    settings: ProcessingSettings,
+    base: ProcessingSettings,
+    overrides: dict[str, Any] | None = None,
 ) -> dict[str, int]:
-    """Assign a batch of unassigned embeddings, then merge and prune.
+    """The one batch code path: lock → load → cluster per model → reconcile.
 
-    Shared by the per-session pipeline job and the CLI full rebuild; the
-    caller supplies candidates already ordered longest-speech-first. Runs
-    entirely on the caller's transaction.
+    Runs entirely on the caller's transaction. ``overrides`` (e.g. one-off
+    CLI flags) layer on top of the user's persisted params, which layer on
+    top of env defaults. Prints under the talk gate stay unassigned — unless
+    pinned: a user assertion outranks the reliability heuristic.
     """
-    counts = {"assigned": 0, "created": 0, "merged": 0, "skipped_short": 0}
-    touched: set = set()
-    models: set[str] = set()
-    for candidate in candidates:
-        if (
-            candidate.talk_ms is not None
-            and candidate.talk_ms < settings.cluster_min_talk_ms
-        ):
-            counts["skipped_short"] += 1
-            continue
-        models.add(candidate.model)
-        nearest = await pipe.speakers.nearest(
-            user_id, candidate.model, candidate.embedding
+    await lock_user_clustering(pipe, user_id)
+    effective = await settings_for_user(pipe, user_id, base)
+    if overrides:
+        effective = effective.model_copy(update=overrides)
+    corpus = await pipe.speakers.corpus_for_user(user_id)
+
+    counts = {"clusters": 0, "assigned": 0, "skipped_short": 0, "pinned": 0}
+    by_model: dict[str, list[CorpusEmbedding]] = {}
+    for row in corpus:
+        by_model.setdefault(row.model, []).append(row)
+    for model in sorted(by_model):
+        rows = by_model[model]
+        gated = [
+            row
+            for row in rows
+            if row.pinned_to is not None
+            or row.talk_ms is None
+            or row.talk_ms >= effective.cluster_min_talk_ms
+        ]
+        counts["skipped_short"] += len(rows) - len(gated)
+        counts["pinned"] += sum(1 for row in gated if row.pinned_to is not None)
+        pins = {
+            index: row.pinned_to
+            for index, row in enumerate(gated)
+            if row.pinned_to is not None
+        }
+        clusters = cluster_corpus(
+            [row.embedding for row in gated], pins, effective.cluster_distance
         )
-        if nearest is not None and nearest[1] <= settings.cluster_assign_max_distance:
-            target = nearest[0]
-            newly_created = False
-        else:
-            target = await pipe.speakers.create(
-                SpeakerCreate(
-                    user_id=user_id, model=candidate.model, centroid=candidate.embedding
-                )
-            )
-            newly_created = True
-        # Rowcount-guarded: diarize may republish mid-job and delete the
-        # embedding; a stillborn new cluster is pruned below.
-        if await pipe.speakers.assign_if_unassigned(candidate.artifact_id, target.id):
-            counts["created" if newly_created else "assigned"] += 1
-            touched.add(target.id)
-
-    for speaker_id in touched:
-        await pipe.speakers.recompute_centroid(speaker_id)
-
-    for model in sorted(models):
-        counts["merged"] += await _merge_pass(pipe, user_id, model, settings)
-        await pipe.speakers.delete_empty_unlabeled(user_id, model)
+        counts["clusters"] += len(clusters)
+        counts["assigned"] += sum(len(cluster) for cluster in clusters)
+        await _reconcile(pipe, user_id, model, gated, clusters)
+    logger.info("rebuilt clusters for user %s: %s", user_id, counts)
     return counts
 
 
-async def _merge_pass(
-    pipe: DatabasePipe, user_id: Any, model: str, settings: ProcessingSettings
-) -> int:
-    """Collapse converged clusters; one merge per iteration, so it terminates.
+async def _reconcile(
+    pipe: DatabasePipe,
+    user_id: Any,
+    model: str,
+    rows: Sequence[CorpusEmbedding],
+    clusters: Sequence[Sequence[int]],
+) -> None:
+    """Map result clusters onto persistent ``speakers`` rows and write.
 
-    Pairs of two *differently named* clusters are never auto-merged — the
-    user said they are different people; skipping them (rather than stopping
-    at them) keeps the loop from spinning on an unmergeable closest pair.
+    Identity, in priority order: the cluster's pinned identity (unique — the
+    clusterer pre-merged each pin-group and never merges across identities);
+    else the *named* previous cluster most of its members came from; else the
+    most common unnamed previous cluster (id stability); else a fresh unnamed
+    row. Named clusters that end up with no members survive as identity
+    anchors; unnamed empties are pruned.
     """
-    merged = 0
-    while True:
-        clusters = await pipe.speakers.list_for_user_model(user_id, model)
-        members = await pipe.speakers.member_counts(user_id, model)
-        best: tuple[float, Speaker, Speaker] | None = None
-        for i, a in enumerate(clusters):
-            for b in clusters[i + 1 :]:
-                if a.name is not None and b.name is not None and a.name != b.name:
-                    continue
-                distance = cosine_distance(a.centroid, b.centroid)
-                if distance <= settings.cluster_merge_max_distance and (
-                    best is None or distance < best[0]
-                ):
-                    best = (distance, a, b)
-        if best is None:
-            return merged
-        survivor, loser = pick_survivor(best[1], best[2], members)
-        logger.info(
-            "merging speaker %s into %s (distance %.3f)", loser.id, survivor.id, best[0]
+    existing = {
+        speaker.id: speaker
+        for speaker in await pipe.speakers.list_for_user_model(user_id, model)
+    }
+    claimed: set[UUID] = set()
+    resolved: list[tuple[UUID | None, list[CorpusEmbedding]]] = []
+
+    # Pins claim their identity before majority-matching can steal it.
+    ordered = sorted(
+        (tuple(cluster) for cluster in clusters),
+        key=lambda cluster: (
+            not any(rows[i].pinned_to is not None for i in cluster),
+            -len(cluster),
+            str(rows[cluster[0]].artifact_id),
+        ),
+    )
+    for cluster in ordered:
+        group = [rows[i] for i in cluster]
+        pin_ids = {row.pinned_to for row in group if row.pinned_to is not None}
+        if pin_ids:
+            identity = pin_ids.pop()
+            claimed.add(identity)
+            resolved.append((identity, group))
+        else:
+            identity = _match_identity(group, existing, claimed)
+            if identity is not None:
+                claimed.add(identity)
+            resolved.append((identity, group))
+
+    await pipe.speakers.clear_assignments(user_id, model)
+    for identity, group in resolved:
+        if identity is None or identity not in existing:
+            speaker = await pipe.speakers.create(
+                SpeakerCreate(
+                    user_id=user_id, model=model, centroid=group[0].embedding
+                )
+            )
+            identity = speaker.id
+        await pipe.speakers.set_assignments(
+            identity, [row.artifact_id for row in group]
         )
-        await pipe.speakers.merge(loser.id, survivor.id)
-        merged += 1
+        await pipe.speakers.recompute_centroid(identity)
+    await pipe.speakers.delete_empty_unlabeled(user_id, model)
+
+
+def _match_identity(
+    group: Sequence[CorpusEmbedding],
+    existing: dict[UUID, Any],
+    claimed: set[UUID],
+) -> UUID | None:
+    previous = Counter(
+        row.speaker_id for row in group if row.speaker_id is not None
+    )
+    ranked = sorted(previous.items(), key=lambda item: (-item[1], str(item[0])))
+    for want_named in (True, False):
+        for speaker_id, _count in ranked:
+            speaker = existing.get(speaker_id)
+            if speaker is None or speaker_id in claimed:
+                continue
+            if (speaker.name is not None) != want_named:
+                continue
+            return speaker_id
+    return None
 
 
 class SpeakerClusterPipeline(Pipeline):
@@ -179,7 +302,6 @@ class SpeakerClusterPipeline(Pipeline):
             session = await pipe.sessions.get(job.session_id)
             if session is None:
                 return {"skipped": "session vanished"}
-            candidates = await pipe.speakers.unassigned_for_session(job.session_id)
-            return await cluster_batch(
-                pipe, session.user_id, candidates, self._settings
+            return await rebuild_user_clusters(
+                pipe, session.user_id, self._settings
             )

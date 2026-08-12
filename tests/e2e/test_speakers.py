@@ -5,8 +5,8 @@ fetch-by-name unions everything one person said.
 The stub diarizer's embeddings are orthogonal per local speaker and identical
 across sessions/blocks, so SPEAKER_00 of every session lands in one cluster
 and SPEAKER_01 in another (cosine distance 0 within a voice, 1.0 across —
-clean for the 0.60 assign / 0.50 merge thresholds, and far enough apart that
-only a *manual* merge can ever unite them).
+clean for the 0.65 batch-clustering threshold, and far enough apart that
+only a *manual* merge or a loosened threshold can ever unite them).
 """
 
 import asyncio

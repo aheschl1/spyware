@@ -116,8 +116,10 @@ the project is not installed onto `PATH` — use `python -m cli.main`.
 
 A React + TypeScript browser UI over the API: session browser, timeline
 (transcripts, speakers, sound tags), seekable audio playback, text→audio
-search, and speaker labeling — including merging a split voice (distance-ranked
-candidates, with a same-name prompt). Dev-mode only for now:
+search, and speaker curation: labeling, merging split voices (distance-ranked
+candidates, same-name prompt), inspecting a cluster's voice-prints by ear,
+moving/ejecting wrong voices (pinned so rebuilds honor it), and tuning the
+clustering threshold + recomputing from a settings panel. Dev-mode only for now:
 
 ```bash
 make api    # terminal 1 — the API on 127.0.0.1:8000

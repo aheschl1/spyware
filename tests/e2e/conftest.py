@@ -30,7 +30,8 @@ TEST_BUCKET = "test-audio"
 
 TABLES = (
     "users, recording_sessions, audio_segments, auth_tokens, "
-    "processing_jobs, pipeline_artifacts, speakers"
+    "processing_jobs, pipeline_artifacts, speakers, cluster_params, "
+    "speaker_pins"
 )
 
 SERVER_BOOT_TIMEOUT = 30.0

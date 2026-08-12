@@ -184,22 +184,29 @@ each tier discovers its own input):
    the whole session's diarization — the cost of gating ASR on the detector
    that actually hears every speaker.
 4. **`speaker-cluster`** (`processing/pipelines/speaker_cluster.py`) —
-   consumes each session's `diarize-map` and attaches that session's
-   embeddings to the user's global `speakers` clusters (pgvector
-   nearest-centroid within `cluster_assign_max_distance`, else a new
-   unlabeled cluster; merge pass collapses converged centroids, never two
-   differently-named ones). Assignments live in
+   discovered per `diarize-map`, but every run **re-clusters the user's whole
+   corpus** with constrained agglomerative clustering (average linkage,
+   cosine, one threshold: `cluster_distance`, per-user overridable via the
+   `cluster_params` table / `POST /v1/speakers/cluster-params`). Batch
+   re-clustering is order-independent and self-healing — no centroid drift,
+   no permanent splits. User curation persists as **pins** (`speaker_pins`:
+   "this voice-print IS this identity", created by merges and member moves):
+   pin-groups enter the agglomeration pre-merged, and clusters pinned to
+   different identities never merge. After each run, result clusters map
+   back to persistent `speakers` rows — pinned identity first, else majority
+   previous membership preferring named clusters (named identities keep
+   their id), else unnamed ids churn. Assignments live in
    `speaker_embeddings.speaker_id` — a resolve-at-read mapping, so
    re-clustering never rewrites transcripts; local labels stay provenance.
-   Clusters are user-labeled via `POST /v1/speakers/{id}/label`; named
-   clusters are identity anchors that survive republication and the
-   `cli speakers recluster` full rebuild (the drift correction). Embeddings
-   under `cluster_min_talk_ms` of speech are skipped as unreliable.
-   A voice split past the merge threshold is healed manually:
-   `POST /v1/speakers/{id}/merge` folds one cluster into another
-   (`GET /v1/speakers/{id}/similar` ranks candidates by centroid distance),
-   and the web UI offers it via a per-cluster merge button plus a prompt
-   when two clusters are given the same name.
+   Embeddings under `cluster_min_talk_ms` of speech are skipped as
+   unreliable, unless pinned. The same batch runs on demand via
+   `POST /v1/speakers/recluster`, `cli speakers recluster` (one-off
+   `--distance`/`--min-talk-ms` flags) and the web UI's clustering-settings
+   panel; all three serialize per user on an advisory lock. Manual tools:
+   `POST /v1/speakers/{id}/merge` (pins both member sets to the survivor;
+   `GET /v1/speakers/{id}/similar` ranks candidates by centroid distance),
+   `GET /v1/speakers/{id}/members` (voice-prints farthest-first with
+   playable utterance spans), and per-member reassign/eject/unpin routes.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
