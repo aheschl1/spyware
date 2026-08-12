@@ -6,7 +6,7 @@ import { fmtClock } from "./format"
 
 // Lanes shown before the "+N more" toggle, and a ceiling in case the tier's
 // own cap is ever mis-tuned.
-export const SOUND_LANES_SHOWN = 6
+export const SOUND_LANES_SHOWN = 5
 const MAX_SOUND_LANES = 24
 
 export type SoundLane = {
