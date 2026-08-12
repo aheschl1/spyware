@@ -1,10 +1,17 @@
-import { useEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useMemo, useState } from "react"
 import { api, type SessionRead } from "../api/client"
 import { stopClip } from "../clipPlayer"
 import { fmtDate, fmtDuration, shortId } from "../format"
+import { usePlayhead } from "../hooks/usePlayhead"
+import { useSessionEvents } from "../hooks/useSessionEvents"
 import AudioPlayer from "./AudioPlayer"
 import TagSummary from "./TagSummary"
 import Timeline from "./Timeline"
+import TimelineStrip from "./TimelineStrip"
+
+// Memoized so the coarse playhead ticking in this component only re-renders
+// the list when the active utterance actually changes.
+const TimelineList = memo(Timeline)
 
 export default function SessionView({
   sessionId,
@@ -17,8 +24,16 @@ export default function SessionView({
   onOpenSession: (id: string, seekMs?: number) => void
 }) {
   const [session, setSession] = useState<SessionRead | null>(null)
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-  const pendingSeek = useRef<number | undefined>(seekMs)
+  // The audio element as state (not a ref): the strip and playhead hooks
+  // need to re-subscribe when it mounts.
+  const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null)
+  const [pendingSeek, setPendingSeek] = useState<number | undefined>(seekMs)
+  const [follow, setFollow] = useState(true)
+  // Bumped after a speaker is labeled/merged anywhere on the page, so names
+  // propagate to the strip, the transcript list, and the lane headers.
+  const [refreshKey, setRefreshKey] = useState(0)
+
+  const { events, truncated } = useSessionEvents(sessionId, refreshKey)
 
   // The session has its own full player; a still-running inline clip from
   // the search/speakers page would double the audio.
@@ -36,32 +51,54 @@ export default function SessionView({
       })
   }, [sessionId])
 
-  const seekTo = (ms: number) => {
-    const audio = audioRef.current
-    if (!audio) return
-    if (audio.readyState === 0) {
-      pendingSeek.current = ms
-      return
-    }
-    audio.currentTime = ms / 1000
-    void audio.play().catch(() => {})
-  }
+  const seekTo = useCallback(
+    (ms: number, play = true) => {
+      if (!audioEl) return
+      if (audioEl.readyState === 0) {
+        setPendingSeek(ms)
+        return
+      }
+      audioEl.currentTime = ms / 1000
+      if (play) void audioEl.play().catch(() => {})
+    },
+    [audioEl],
+  )
 
   // A seek requested before the element had metadata (deep link from search)
   // applies once the audio is ready.
   useEffect(() => {
-    const audio = audioRef.current
-    if (!audio) return
-    const applyPending = () => {
-      if (pendingSeek.current !== undefined) {
-        audio.currentTime = pendingSeek.current / 1000
-        pendingSeek.current = undefined
-        void audio.play().catch(() => {})
+    if (!audioEl || pendingSeek === undefined) return
+    const apply = () => {
+      audioEl.currentTime = pendingSeek / 1000
+      setPendingSeek(undefined)
+      void audioEl.play().catch(() => {})
+    }
+    if (audioEl.readyState > 0) {
+      apply()
+      return
+    }
+    audioEl.addEventListener("loadedmetadata", apply)
+    return () => audioEl.removeEventListener("loadedmetadata", apply)
+  }, [audioEl, pendingSeek])
+
+  // Coarse (quantized) playhead — just enough to know which utterance is
+  // under the needle for the transcript list highlight.
+  const head = usePlayhead(audioEl, "coarse")
+  const activeId = useMemo(() => {
+    if (!events) return null
+    for (const event of events) {
+      if (
+        event.type === "transcript" &&
+        head.ms >= event.start_ms &&
+        head.ms < event.end_ms
+      ) {
+        return event.artifact_id + event.start_ms
       }
     }
-    audio.addEventListener("loadedmetadata", applyPending)
-    return () => audio.removeEventListener("loadedmetadata", applyPending)
-  }, [session])
+    return null
+  }, [events, head.ms])
+
+  const onSpeakersChanged = useCallback(() => setRefreshKey((k) => k + 1), [])
 
   if (!session) return <div className="loading">Loading session…</div>
 
@@ -82,9 +119,28 @@ export default function SessionView({
           </div>
         </div>
       </div>
-      <AudioPlayer sessionId={sessionId} audioRef={audioRef} />
+      <AudioPlayer sessionId={sessionId} audioRef={setAudioEl} />
+      {events && events.length > 0 && (
+        <TimelineStrip
+          events={events}
+          truncated={truncated}
+          audioEl={audioEl}
+          follow={follow}
+          onFollowChange={setFollow}
+          onSeek={seekTo}
+          onSpeakersChanged={onSpeakersChanged}
+        />
+      )}
       <TagSummary sessionId={sessionId} />
-      <Timeline sessionId={sessionId} onSeek={seekTo} focusMs={seekMs} />
+      <TimelineList
+        sessionId={sessionId}
+        onSeek={seekTo}
+        focusMs={seekMs}
+        activeId={activeId}
+        follow={follow && head.playing}
+        refreshKey={refreshKey}
+        onSpeakersChanged={onSpeakersChanged}
+      />
     </div>
   )
 }

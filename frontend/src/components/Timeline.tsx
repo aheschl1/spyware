@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, type TimelineEvent } from "../api/client"
 import { fmtClock } from "../format"
+import SpeakerChip from "./SpeakerChip"
 import TimelineFilter, { loadHidden, type EventKind } from "./TimelineFilter"
 
 const PAGE = 200
@@ -20,10 +21,20 @@ export default function Timeline({
   sessionId,
   onSeek,
   focusMs,
+  activeId,
+  follow,
+  refreshKey,
+  onSpeakersChanged,
 }: {
   sessionId: string
   onSeek: (ms: number) => void
   focusMs?: number
+  // `artifact_id + start_ms` of the utterance under the playhead, if any.
+  activeId?: string | null
+  // When true (playing + follow mode), the active row keeps itself in view.
+  follow?: boolean
+  refreshKey?: number
+  onSpeakersChanged?: () => void
 }) {
   const [events, setEvents] = useState<TimelineEvent[] | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -60,6 +71,41 @@ export default function Timeline({
     void load(0, fromMs)
   }, [load, fromMs])
 
+  // After a speaker is labeled/merged, re-pull everything currently on
+  // screen (not just page one) so names update without losing scroll depth.
+  const loadedCount = useRef(0)
+  useEffect(() => {
+    loadedCount.current = events?.length ?? 0
+  }, [events])
+  const seenRefresh = useRef(refreshKey)
+  useEffect(() => {
+    if (refreshKey === undefined || refreshKey === seenRefresh.current) return
+    seenRefresh.current = refreshKey
+    void (async () => {
+      const target = Math.max(PAGE, loadedCount.current)
+      const all: TimelineEvent[] = []
+      let more = false
+      while (all.length < target) {
+        const { data } = await api.GET("/v1/sessions/{session_id}/timeline", {
+          params: {
+            path: { session_id: sessionId },
+            query: {
+              limit: PAGE,
+              offset: all.length,
+              ...(fromMs !== null ? { from_ms: fromMs } : {}),
+            },
+          },
+        })
+        if (!data) break
+        all.push(...data.items)
+        more = data.has_more
+        if (!data.has_more) break
+      }
+      setEvents(all)
+      setHasMore(more)
+    })()
+  }, [refreshKey, sessionId, fromMs])
+
   // Flash-and-scroll the first substantive event at/after the focus moment,
   // once per deep link.
   useEffect(() => {
@@ -79,6 +125,15 @@ export default function Timeline({
     node?.scrollIntoView({ block: "center", behavior: "smooth" })
   }, [])
 
+  // Follow mode: as playback crosses into a new utterance, nudge its row
+  // into view. block:"nearest" keeps this gentle — no scroll when visible.
+  useEffect(() => {
+    if (!follow || !activeId) return
+    document
+      .querySelector(".event.playing")
+      ?.scrollIntoView({ block: "nearest", behavior: "smooth" })
+  }, [follow, activeId])
+
   if (!events)
     return (
       <div className="list">
@@ -94,21 +149,28 @@ export default function Timeline({
     switch (event.type) {
       case "transcript": {
         if (hidden.has("transcript")) return null
-        const speaker = event.speaker_name ?? event.speaker
+        const active = activeId != null && activeId === event.artifact_id + event.start_ms
         return (
           <div
             key={key}
             ref={flash ? flashRef : undefined}
-            className={`event transcript ${flash ? "flash" : ""}`}
+            className={`event transcript ${flash ? "flash" : ""} ${active ? "playing" : ""}`}
           >
-            <button className="event-time" onClick={() => onSeek(event.at_ms)}>
+            <button
+              className="event-time"
+              title="listen from here"
+              onClick={() => onSeek(event.at_ms)}
+            >
               {fmtClock(event.at_ms)}
             </button>
             <div className="event-body">
-              {speaker && (
-                <span className={`speaker ${event.speaker_name ? "" : "unresolved"}`}>
-                  {speaker}
-                </span>
+              {(event.speaker || event.speaker_id) && (
+                <SpeakerChip
+                  clusterId={event.speaker_id}
+                  name={event.speaker_name}
+                  localLabel={event.speaker}
+                  onChanged={() => onSpeakersChanged?.()}
+                />
               )}
               <span className="transcript-text">{event.text}</span>
             </div>
@@ -123,7 +185,11 @@ export default function Timeline({
             ref={flash ? flashRef : undefined}
             className={`event tags ${flash ? "flash" : ""}`}
           >
-            <button className="event-time" onClick={() => onSeek(event.at_ms)}>
+            <button
+              className="event-time"
+              title="listen from here"
+              onClick={() => onSeek(event.at_ms)}
+            >
               {fmtClock(event.at_ms)}
             </button>
             <div className="event-body chips">

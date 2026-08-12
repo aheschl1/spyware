@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from "react"
+import { useEffect, useRef, useState, type Ref } from "react"
 import { api } from "../api/client"
 
 // <audio src> cannot carry an Authorization header, so playback runs on a
@@ -10,7 +10,7 @@ export default function AudioPlayer({
   audioRef,
 }: {
   sessionId: string
-  audioRef: RefObject<HTMLAudioElement | null>
+  audioRef: Ref<HTMLAudioElement | null>
 }) {
   const [src, setSrc] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)

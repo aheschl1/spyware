@@ -300,6 +300,13 @@ body {
   transition: border-color 120ms, background 120ms, transform 80ms;
 }
 
+/* overflow: hidden keeps the clip-progress bar inside the rounded corners,
+   but it would also clip an open popover (e.g. the voice-print move menu) —
+   lift it while one is open. */
+.row:has(.filter-pop) {
+  overflow: visible;
+}
+
 button.row,
 .row.clickable {
   cursor: pointer;
@@ -1037,6 +1044,295 @@ button.row:hover,
   margin-top: 10px;
 }
 
+/* ------------- speaker chips: label a voice from anywhere it appears */
+
+.speaker-chip-root {
+  display: inline-flex;
+  vertical-align: baseline;
+  margin-right: 8px;
+}
+
+.speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 16em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: border-color 120ms, background 120ms;
+}
+
+.speaker-chip:hover {
+  border-color: var(--border);
+  background: var(--surface2);
+}
+
+.speaker-chip.unresolved {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.speaker-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+/* Chips sit near the left edge of rows/headers; open the popover rightward. */
+.speaker-chip-root .filter-pop {
+  left: 0;
+  right: auto;
+}
+
+.chip-pop {
+  min-width: 260px;
+  max-height: 320px;
+  overflow-y: auto;
+  cursor: default;
+}
+
+.chip-pop-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 6px;
+  line-height: 1.45;
+}
+
+.chip-pop-name {
+  display: flex;
+  gap: 6px;
+  padding: 2px;
+}
+
+.chip-pop .merge-candidate .speaker-dot {
+  width: 10px;
+  height: 10px;
+}
+
+/* The utterance currently under the playhead. */
+.event.playing {
+  background: var(--accent-soft);
+}
+
+.event.playing::before {
+  opacity: 1;
+}
+
+/* ------------- visual timeline strip */
+
+.strip {
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.strip-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.strip-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+.strip-zoom {
+  display: flex;
+  gap: 2px;
+}
+
+.strip-zoom .btn {
+  padding: 1px 9px;
+  font-size: 13px;
+}
+
+.strip-body {
+  position: relative;
+  display: flex;
+  gap: 8px;
+}
+
+.strip-heads {
+  flex: none;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.strip-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.strip-head .speaker-chip {
+  max-width: 112px;
+  font-size: 12px;
+}
+
+.strip-talk {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.strip-head-tags {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+  padding-left: 6px;
+}
+
+.strip-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--surface2);
+  cursor: crosshair;
+  scrollbar-width: thin;
+}
+
+.strip-canvas {
+  position: relative;
+  min-width: 100%;
+}
+
+.strip-ruler {
+  position: relative;
+  border-bottom: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.strip-tick {
+  position: absolute;
+  bottom: 2px;
+  transform: translateX(-50%);
+  padding: 0 2px;
+}
+
+.strip-tick::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 5px;
+  background: var(--border);
+}
+
+.strip-lane {
+  position: relative;
+  border-bottom: 1px solid color-mix(in srgb, var(--border-soft) 55%, transparent);
+}
+
+.strip-lane.tags {
+  border-bottom: none;
+}
+
+.strip-block {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  min-width: 3px;
+  border-radius: 3px;
+  border: 1px solid;
+  cursor: pointer;
+  transition: filter 100ms;
+}
+
+.strip-block:hover {
+  filter: brightness(1.35);
+}
+
+.strip-block.unresolved {
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.strip-block.tag {
+  background: color-mix(in srgb, var(--text-muted) 30%, transparent);
+  border-color: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+
+.strip-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1.5px solid var(--accent-strong);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.strip-playhead-time {
+  position: absolute;
+  top: 1px;
+  left: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent-strong);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  padding: 0 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.strip-tip {
+  position: absolute;
+  z-index: 7;
+  transform: translate(-50%, calc(-100% - 10px));
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 7px 10px;
+  max-width: 340px;
+  pointer-events: none;
+  font-size: 12px;
+}
+
+.strip-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.strip-tip-text {
+  margin-top: 3px;
+  color: var(--text-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ------------- small screens */
 
 @media (max-width: 640px) {
@@ -1080,6 +1376,14 @@ button.row:hover,
 
   .speaker-row .row-sub {
     display: none;
+  }
+
+  .strip-heads {
+    width: 104px;
+  }
+
+  .strip-head .speaker-chip {
+    max-width: 76px;
   }
 }
 

@@ -8,30 +8,13 @@ import {
   type SpeakerTranscriptRead,
 } from "../api/client"
 import { fmtClock, fmtDate, shortId } from "../format"
+import { hue, initials, speakerLabel } from "../speakers"
 import ClipButton, { ClipProgress } from "./ClipButton"
 
 // Centroids of one voice spread up to ~0.6; different voices sit near ~0.9.
 // At or past this, the confirm step warns that the merge looks cross-voice.
 const FAR_DISTANCE = 0.85
 const MEMBER_PAGE = 50
-
-function initials(name: string | null | undefined, id: string): string {
-  if (!name) return id.slice(0, 2)
-  const parts = name.trim().split(/\s+/)
-  return ((parts[0]?.[0] ?? "") + (parts[1]?.[0] ?? "")).toUpperCase() || id.slice(0, 2)
-}
-
-// Deterministic accent per speaker so the same cluster always wears the
-// same colour, labeled or not.
-function hue(id: string): number {
-  let h = 0
-  for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) % 360
-  return h
-}
-
-function speakerLabel(speaker: { name?: string | null; id: string }): string {
-  return speaker.name ?? shortId(speaker.id)
-}
 
 // Named clusters float to the top; sort() is stable, so each half keeps the
 // server's created-at order.
