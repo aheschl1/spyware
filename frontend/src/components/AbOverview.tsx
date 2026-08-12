@@ -9,10 +9,16 @@ const ACTIVE_POLL_MS = 2_500
 type State = AbResultsRead["sessions"][number]
 
 function StatusChip({ state }: { state: State }) {
-  if (state.status === "queued") return <span className="chip">queued…</span>
+  if (state.status === "queued")
+    return (
+      <span className="chip ab-generating">
+        <span className="spinner" /> queued…
+      </span>
+    )
   if (state.status === "running")
     return (
       <span className="chip ab-generating">
+        <span className="spinner" />
         <span className="ab-mini">
           <span
             className="ab-mini-fill"
@@ -139,7 +145,11 @@ export default function AbOverview({ onVote }: { onVote: (sessionId: string) => 
                   </span>
                 </div>
                 {state ? <StatusChip state={state} /> : null}
-                {queued[session.id] && !state && <span className="chip">queued…</span>}
+                {queued[session.id] && !state && (
+                  <span className="chip ab-generating">
+                    <span className="spinner" /> queued…
+                  </span>
+                )}
                 {(state?.votes ?? 0) > 0 && <span className="chip strong">{state!.votes} voted</span>}
                 <button
                   className="btn ghost slim"

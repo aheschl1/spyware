@@ -138,6 +138,7 @@ export default function AbVoteView({
         </div>
       ) : generating ? (
         <div className="banner ab-progress-banner">
+          <span className="spinner" />
           <span>
             generating candidates… {ab.candidates}/{ab.expected}
           </span>
