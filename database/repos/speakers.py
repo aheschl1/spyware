@@ -189,7 +189,6 @@ class SpeakersRepo(BaseRepo):
             (speaker_id, list(artifact_ids)),
         )
 
-    # ----------------------------------------------------------------- pins
 
     async def pin(self, artifact_id: UUID, speaker_id: UUID) -> None:
         """Assert a voice-print's identity; every future rebuild honors it."""
