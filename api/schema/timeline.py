@@ -120,12 +120,38 @@ class AudioTagEvent(ArtifactEventBase):
     model: str | None = Field(None, description="The tagging model that produced them.")
 
 
+class SoundSpanEvent(ArtifactEventBase):
+    """One continuous stretch of a single sound class over ``[start_ms,
+    end_ms)``; positioned at the start.
+
+    Spans of different classes overlap freely; spans of one class never do.
+    Edges are the union of the classified windows behind them, so they are
+    smeared by up to one window either way and are not event onsets.
+    """
+
+    type: Literal["sound-span"] = "sound-span"
+    start_ms: int = Field(description="Start of the span, ms.")
+    end_ms: int = Field(description="End (exclusive) of the span, ms.")
+    label: str = Field(description="The class that held, e.g. ``Music``.")
+    peak: float | None = Field(None, description="Best window score inside the span.")
+    mean: float | None = Field(
+        None,
+        description="Mean window score across the span — how solidly the class "
+        "held, where peak is how loudly it announced itself.",
+    )
+    windows: int | None = Field(
+        None, description="How many classified windows the span merges."
+    )
+    model: str | None = Field(None, description="The tagging model behind the scores.")
+
+
 type TimelineEvent = Annotated[
     SessionStartEvent
     | SessionEndEvent
     | SpeechEndEvent
     | SpeechStartEvent
     | TranscriptEvent
-    | AudioTagEvent,
+    | AudioTagEvent
+    | SoundSpanEvent,
     Field(discriminator="type"),
 ]

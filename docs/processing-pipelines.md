@@ -258,12 +258,13 @@ Swapping models/backends is env-only. Canary-qwen is English-only and emits
 no word timestamps — timing granularity is the utterance; a forced-alignment
 tier can refine it later on the same artifact model.
 
-## The audio-tag tier
+## The audio-tag tiers
 
 `audio-tag` (`processing/pipelines/audio_tag.py`) runs beside the speech
 tiers, not downstream of them: it discovers ended sessions directly (same
 trigger as `speech-detect`) because non-speech sound — traffic, music, a
-keyboard — is exactly what it exists to hear.
+keyboard — is exactly what it exists to hear. `sound-span` then runs
+downstream of it, turning its windows into something readable.
 
 1. **audio-tag** — walks the session's audio in ~2-minute rendered spans
    (overlapping by window-minus-hop so the service's 10 s / 5 s-hop window
@@ -282,6 +283,45 @@ keyboard — is exactly what it exists to hear.
    row. The ontology parent map is vendored data
    (`processing/data/audioset_parents.json`, generated from
    github.com/audioset/ontology).
+
+2. **sound-span** (`processing/pipelines/sound_span.py`) — consumes those
+   windows and publishes the readable shape: few long `sound-span` artifacts
+   carrying **one class each**, plus a `sound-span-map` marker. Spans of
+   different classes overlap freely (music under speech under typing); spans
+   of one class never do, which is what lets a class render as a single
+   timeline lane. It triggers on `audio-tag-map` exactly as `speaker-cluster`
+   triggers on `diarize-map`, and reads the windows through
+   `database/repos/pipelines/sound_span.py`.
+
+   Spans are built with **hysteresis**, not one threshold: the tagger's
+   per-window sigmoids wobble by hundredths, so a class near a single cut-off
+   shatters into fragments. A span opens at `sound_span_enter_score` and
+   extends while `sound_span_sustain_score` holds; reopening after a close
+   costs `enter` again. `sustain` must stay above `audio_tag_window_min_score`
+   — below that floor a label is simply absent from a window's metadata, so a
+   lower sustain would hand the decision to the service's floor. Dropouts are
+   bridged by `sound_span_bridge_gap_ms`, measured as *milliseconds of audio
+   no member window covered* — grid-free on purpose, so it survives missing
+   windows, audio-tag's seam dedupe, and hop changes. The evidence floor is
+   `sound_span_min_windows` rather than a duration, because a one-window span
+   is already a window wide. Classes rank by total covered time and are kept
+   whole (`sound_span_top_k`); `sound_span_max_spans` is the row guard against
+   `create_many`'s bind-parameter ceiling.
+
+   **A span edge is not an event onset.** Edges are the union of their member
+   windows, so they are smeared by up to one window either way — the tagger
+   offers no sub-window localization. A later tier could sharpen them by
+   re-rendering the seconds around each edge at a fine hop without changing
+   anything here.
+
+   Invalidation is the standard artifact story: audio-tag republishing deletes
+   the old map, which nulls `artifact_id` on any queued sound-span job (it
+   skips), while the new map mints a fresh job that replaces the tier's whole
+   output. Audio-tag needs no reciprocal delete — unlike diarize→transcribe,
+   this is one job per session that already clears its own output first. Stale
+   spans therefore survive for the seconds between the two, and indefinitely
+   if the job dead-letters: the same eventual consistency `speaker-cluster`
+   lives under.
 
 The embeddings are the retrieval half of question-answering over recordings:
 `GET /v1/search/audio?q=…` embeds the text through the same service's CLAP

@@ -14,6 +14,7 @@ from api.schema.timeline import (
     AudioTagEvent,
     SessionEndEvent,
     SessionStartEvent,
+    SoundSpanEvent,
     SpeechEndEvent,
     SpeechStartEvent,
     TimelineEvent,
@@ -36,6 +37,7 @@ _TYPE_RANK = {
     "speech-start": 2,
     "transcript": 3,
     "audio-tag": 4,
+    "sound-span": 5,
     "session-end": 100,
 }
 _DEFAULT_RANK = 50
@@ -89,6 +91,24 @@ def _audio_tag_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
         start_ms=artifact.start_ms,
         end_ms=artifact.end_ms,
         labels=tuple(artifact.metadata.get("labels", ())),
+        model=artifact.metadata.get("model"),
+    )
+
+
+@expander("sound-span", "sound-span")
+def _sound_span_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
+    label = artifact.metadata.get("label")
+    if artifact.start_ms is None or artifact.end_ms is None or not label:
+        return
+    yield SoundSpanEvent(
+        at_ms=artifact.start_ms,
+        artifact_id=artifact.id,
+        start_ms=artifact.start_ms,
+        end_ms=artifact.end_ms,
+        label=str(label),
+        peak=artifact.metadata.get("peak"),
+        mean=artifact.metadata.get("mean"),
+        windows=artifact.metadata.get("windows"),
         model=artifact.metadata.get("model"),
     )
 

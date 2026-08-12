@@ -1261,6 +1261,18 @@ button.row:hover,
   padding-left: 6px;
 }
 
+.strip-head-sound {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .strip-scroll {
   flex: 1;
   min-width: 0;
@@ -1312,6 +1324,18 @@ button.row:hover,
   border-bottom: none;
 }
 
+/* Sounds are a second group under the voices. An inset rule separates them
+   without adding height — the heads column and the canvas stay aligned only
+   because their rows are each exactly LANE_H. */
+.strip-lane.sound-first,
+.strip-head.sound-first {
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.strip-lane.sound-last {
+  border-bottom: none;
+}
+
 .strip-block {
   position: absolute;
   top: 5px;
@@ -1335,6 +1359,14 @@ button.row:hover,
 .strip-block.tag {
   background: color-mix(in srgb, var(--text-muted) 30%, transparent);
   border-color: color-mix(in srgb, var(--text-muted) 45%, transparent);
+}
+
+/* Slightly inset and rounder than utterance blocks: a span reads as a stretch
+   of context rather than a discrete utterance. */
+.strip-block.sound {
+  top: 6px;
+  bottom: 6px;
+  border-radius: 4px;
 }
 
 .strip-playhead {

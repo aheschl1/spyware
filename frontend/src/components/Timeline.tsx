@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { api, type TimelineEvent, type TranscriptEvent } from "../api/client"
 import { fmtClock } from "../format"
+import { describeSpan } from "../sounds"
 import SpeakerChip from "./SpeakerChip"
 import TimelineFilter, { loadHidden, type EventKind } from "./TimelineFilter"
 
@@ -275,6 +276,33 @@ export default function Timeline({
                   {tag.label}
                 </span>
               ))}
+            </div>
+          </div>
+        )
+      }
+      case "sound-span": {
+        if (hidden.has("sound-span")) return null
+        return (
+          <div
+            key={key}
+            ref={flash ? flashRef : undefined}
+            className={`event tags ${flash ? "flash" : ""}`}
+          >
+            <button
+              className="event-time"
+              title="listen from here"
+              onClick={() => onSeek(event.at_ms)}
+            >
+              {fmtClock(event.at_ms)}
+            </button>
+            <div className="event-body chips">
+              <span className="chip strong" title={describeSpan(event)}>
+                {event.label}
+              </span>
+              <span className="row-dim">
+                {fmtClock(event.start_ms)}–{fmtClock(event.end_ms)} ·{" "}
+                {fmtClock(event.end_ms - event.start_ms)}
+              </span>
             </div>
           </div>
         )

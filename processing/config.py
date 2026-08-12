@@ -115,6 +115,27 @@ class ProcessingSettings(BaseSettings):
     audio_tag_min_consecutive: int = 2
     audio_tag_top_k: int = 15
 
+    # Sound-span tier: the tagger's windows merged into few long single-class
+    # spans. Hysteresis, not one threshold — sigmoid scores wobble, and a class
+    # sitting near a single cut-off shatters into fragments. A span opens at
+    # `enter` and holds while `sustain` does. `sustain` must stay above
+    # audio_tag_window_min_score (0.15): below that floor a label is simply
+    # absent, so the service's floor would be making the call instead of us.
+    sound_span_enter_score: float = 0.35
+    sound_span_sustain_score: float = 0.20
+    # Dropout tolerance as ms of audio no member window covered — not a window
+    # count, so it survives missing windows and hop changes.
+    sound_span_bridge_gap_ms: int = 5_000
+    # A one-window span is already ~10s wide, so the evidence floor is stated
+    # in windows rather than milliseconds.
+    sound_span_min_windows: int = 2
+    # Classes rank by total covered time, not peak. Lower than audio_tag_top_k
+    # because each class becomes a timeline lane.
+    sound_span_top_k: int = 8
+    # Row guard: create_many binds 9 params/row against Postgres' 65535 ceiling
+    # and does not chunk.
+    sound_span_max_spans: int = 2_000
+
     # Speaker clustering tier: batch agglomerative clustering (average
     # linkage, cosine) over per-(block, speaker) embeddings; merging stops at
     # this distance. Embeddings from under min_talk_ms of speech are skipped

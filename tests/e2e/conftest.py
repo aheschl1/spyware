@@ -326,16 +326,31 @@ async def clean_state(test_env: dict[str, str], migrated: None, s3: Any) -> Any:
     await close_pool()
 
 
-def _truncate(env: dict[str, str]) -> None:
-    with psycopg.connect(
-        host=env["DATABASE_HOST"],
-        port=int(env["DATABASE_PORT"]),
-        dbname=env["DATABASE_NAME"],
-        user=env["DATABASE_USER"],
-        password=env["DATABASE_PASSWORD"],
-        autocommit=True,
-    ) as conn:
-        conn.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+def _truncate(env: dict[str, str], attempts: int = 10) -> None:
+    """Empty the tables, waiting out any worker mid-transaction.
+
+    TRUNCATE takes ACCESS EXCLUSIVE on every table at once while the live
+    workers hold locks on a subset in their own order, so it can deadlock or
+    block. `lock_timeout` turns that into a fast, retryable error rather than
+    a hang; the workers' transactions are short, so a retry gets through.
+    """
+    for attempt in range(attempts):
+        try:
+            with psycopg.connect(
+                host=env["DATABASE_HOST"],
+                port=int(env["DATABASE_PORT"]),
+                dbname=env["DATABASE_NAME"],
+                user=env["DATABASE_USER"],
+                password=env["DATABASE_PASSWORD"],
+                autocommit=True,
+            ) as conn:
+                conn.execute("SET lock_timeout = '2s'")
+                conn.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+            return
+        except (psycopg.errors.DeadlockDetected, psycopg.errors.LockNotAvailable):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.25)
 
 
 def _empty_bucket(client: Any) -> None:
