@@ -114,13 +114,19 @@ class SpeakersRepo(BaseRepo):
 
     async def corpus_for_user(self, user_id: UUID) -> list[CorpusEmbedding]:
         """Every voice-print of the user with its previous assignment and pin
-        — the batch clusterer's whole input, in deterministic order."""
+        — the batch clusterer's whole input, in deterministic order.
+
+        ``talk_ms`` prefers ``clean_talk_ms`` (non-overlapped speech) when
+        the diarizer recorded it: a print whose label only ever spoke under
+        crosstalk is exactly the unreliable kind the talk gate exists to
+        skip. Prints from before overlap tracking fall back to raw talk."""
         return await self._fetch_all(
             CorpusEmbedding,
             """
                 SELECT e.artifact_id, e.session_id, e.speaker, e.model,
                        e.embedding::text AS embedding,
-                       (a.metadata->>'talk_ms')::bigint AS talk_ms,
+                       coalesce((a.metadata->>'clean_talk_ms')::bigint,
+                                (a.metadata->>'talk_ms')::bigint) AS talk_ms,
                        e.speaker_id, p.speaker_id AS pinned_to
                 FROM speaker_embeddings e
                 JOIN recording_sessions rs ON rs.id = e.session_id
@@ -266,13 +272,18 @@ class SpeakersRepo(BaseRepo):
     ) -> list[SpeakerMember]:
         """A cluster's voice-prints, farthest from the centroid first — the
         inspection order: outliers (likely wrong voices) surface on top. The
-        clip is the voice's longest utterance in that block, the same
-        (session, namespaced-label) join the transcript routes use."""
+        clip is the voice's *cleanest* utterance in that block — most
+        non-overlapped audio, i.e. duration minus crosstalk — via the same
+        (session, namespaced-label) join the transcript routes use. Longest
+        would systematically pick the worst clip in a crowded scene: other
+        people talking over are in the rendered audio, and a listener would
+        blame the voice-print for voices that were never assigned to it."""
         return await self._fetch_all(
             SpeakerMember,
             """
                 SELECT e.artifact_id, e.session_id, rs.started_at, e.speaker,
-                       (a.metadata->>'talk_ms')::bigint AS talk_ms,
+                       coalesce((a.metadata->>'clean_talk_ms')::bigint,
+                                (a.metadata->>'talk_ms')::bigint) AS talk_ms,
                        e.embedding <=> s.centroid AS distance,
                        p.artifact_id IS NOT NULL AS pinned,
                        u.start_ms AS clip_start_ms, u.end_ms AS clip_end_ms
@@ -286,7 +297,8 @@ class SpeakersRepo(BaseRepo):
                     WHERE t.session_id = e.session_id
                       AND t.pipeline = 'diarize' AND t.kind = 'utterance'
                       AND t.metadata->>'speaker' = e.speaker
-                    ORDER BY t.end_ms - t.start_ms DESC
+                    ORDER BY (t.end_ms - t.start_ms)
+                             - coalesce((t.metadata->>'overlap_ms')::bigint, 0) DESC
                     LIMIT 1
                 ) u ON true
                 WHERE e.speaker_id = %s
@@ -339,7 +351,8 @@ class SpeakersRepo(BaseRepo):
             SessionSpeakerLabel,
             """
                 SELECT e.speaker, e.artifact_id, e.speaker_id, s.name,
-                       (a.metadata->>'talk_ms')::bigint AS talk_ms
+                       coalesce((a.metadata->>'clean_talk_ms')::bigint,
+                                (a.metadata->>'talk_ms')::bigint) AS talk_ms
                 FROM speaker_embeddings e
                 LEFT JOIN speakers s ON s.id = e.speaker_id
                 LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id

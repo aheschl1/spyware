@@ -5,6 +5,14 @@ The diarize tier depends on this contract, not on pyannote: ``POST
 speaker labels plus one embedding per detected speaker. The diar_pyannote
 container implements it; anything else that speaks the same JSON can be
 swapped in via ``PROCESSING_DIARIZER_BASE_URL``.
+
+Turns may additionally carry ``overlap_ms``/``clean_ms`` (time shared with /
+free of other speakers) and a per-turn ``embedding`` computed on the turn's
+clean audio only. All three are optional — an older or degraded service
+omits them and the tier behaves exactly as before per-turn support existed.
+Per-turn vectors are what let the tier audit a label's purity (pyannote can
+wrongly put several people under one label; its per-label aggregate cannot
+reveal that) and build voice-prints free of crosstalk frames.
 """
 
 import logging
@@ -28,6 +36,9 @@ class Turn:
     start_ms: int
     end_ms: int
     speaker: str  # label local to this one request
+    overlap_ms: int = 0  # time shared with other speakers' turns
+    clean_ms: int | None = None  # non-overlapped time; None = service can't say
+    embedding: tuple[float, ...] | None = None  # from clean audio only
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,15 +77,43 @@ class Diarizer:
         return parse_response(body)
 
 
+def _finite_vector(vector: Any) -> list[float] | None:
+    """The vector as floats, or None if it is not a list of finite numbers.
+
+    isfinite matters: json.loads parses a literal NaN into a float that
+    would poison every pgvector distance downstream.
+    """
+    if not isinstance(vector, list) or not all(
+        isinstance(value, (int, float)) and math.isfinite(value)
+        for value in vector
+    ):
+        return None
+    return [float(value) for value in vector]
+
+
 def parse_response(body: Any) -> DiarizationResult:
     """Validate the service's JSON into a result; DiarizerError when unusable."""
     if not isinstance(body, dict) or not isinstance(body.get("turns"), list):
         raise DiarizerError(f"no turns in diarizer response: {body!r}")
     try:
-        turns = tuple(
-            Turn(int(t["start_ms"]), int(t["end_ms"]), str(t["speaker"]))
-            for t in body["turns"]
-        )
+        turns = []
+        for t in body["turns"]:
+            clean_ms = t.get("clean_ms")
+            # Per-turn extras are optional (older service: absent) and never
+            # fatal — a malformed vector degrades to None, exactly like a
+            # turn too overlapped to embed.
+            vector = _finite_vector(t.get("embedding"))
+            turns.append(
+                Turn(
+                    int(t["start_ms"]),
+                    int(t["end_ms"]),
+                    str(t["speaker"]),
+                    overlap_ms=int(t.get("overlap_ms") or 0),
+                    clean_ms=None if clean_ms is None else int(clean_ms),
+                    embedding=None if vector is None else tuple(vector),
+                )
+            )
+        turns = tuple(turns)
     except (KeyError, TypeError, ValueError) as exc:
         raise DiarizerError(f"malformed turn in diarizer response: {exc}") from exc
 
@@ -87,15 +126,11 @@ def parse_response(body: Any) -> DiarizationResult:
         # speaker with almost no clean speech) is not worth retrying to
         # death over: the turns are the load-bearing output — this tier
         # gates transcription — so drop just that speaker's embedding.
-        # isfinite matters: json.loads parses a literal NaN into a float
-        # that would poison every pgvector distance downstream.
-        if not isinstance(vector, list) or not all(
-            isinstance(value, (int, float)) and math.isfinite(value)
-            for value in vector
-        ):
+        parsed = _finite_vector(vector)
+        if parsed is None:
             logger.warning("dropping malformed embedding for %r", speaker)
             continue
-        embeddings[str(speaker)] = [float(value) for value in vector]
+        embeddings[str(speaker)] = parsed
 
     return DiarizationResult(
         turns=turns, embeddings=embeddings, model=str(body.get("model", ""))

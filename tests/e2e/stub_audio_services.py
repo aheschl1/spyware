@@ -14,6 +14,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STUB_TEXT = "hello from the stub transcriber"
 
 # Two turns and two speakers, fixed: the e2e sessions are ~300ms of tone.
+# No per-turn fields — this is deliberately the OLD service shape, so every
+# test that goes through it locks in backward compatibility.
 STUB_TURNS = [
     {"start_ms": 0, "end_ms": 150, "speaker": "SPEAKER_00"},
     {"start_ms": 150, "end_ms": 300, "speaker": "SPEAKER_01"},
@@ -23,6 +25,29 @@ STUB_EMBEDDINGS = {
     "SPEAKER_01": [0.0, 1.0, 0.0, 0.0],
 }
 STUB_DIAR_MODEL = "stub-diarizer"
+
+# Uploads over this many bytes get the split scenario instead: SPEAKER_00
+# carries two orthogonal per-turn voice groups (a label pyannote should have
+# split), SPEAKER_01 stays an old-style turn without per-turn fields. The
+# regular ~300ms e2e sessions post ~10KB; a test opts in by uploading ≥1s of
+# audio (~32KB). Keep any diarize-asserting session below ~600ms unless it
+# wants this response.
+STUB_SPLIT_THRESHOLD_BYTES = 20_000
+STUB_SPLIT_TURNS = [
+    {"start_ms": 0, "end_ms": 250, "speaker": "SPEAKER_00",
+     "overlap_ms": 50, "clean_ms": 200, "embedding": [1.0, 0.0, 0.0, 0.0]},
+    {"start_ms": 250, "end_ms": 500, "speaker": "SPEAKER_00",
+     "overlap_ms": 0, "clean_ms": 250, "embedding": [1.0, 0.0, 0.0, 0.0]},
+    {"start_ms": 500, "end_ms": 700, "speaker": "SPEAKER_00",
+     "overlap_ms": 0, "clean_ms": 200, "embedding": [0.0, 1.0, 0.0, 0.0]},
+    {"start_ms": 750, "end_ms": 950, "speaker": "SPEAKER_00",
+     "overlap_ms": 0, "clean_ms": 200, "embedding": [0.0, 1.0, 0.0, 0.0]},
+    {"start_ms": 0, "end_ms": 150, "speaker": "SPEAKER_01"},
+]
+STUB_SPLIT_EMBEDDINGS = {
+    "SPEAKER_00": [0.5, 0.5, 0.0, 0.0],  # the blended aggregate: never stored
+    "SPEAKER_01": [0.0, 0.0, 1.0, 0.0],  # fallback for the old-style label
+}
 
 # Two windows, fixed: Music persists across both (qualifies as a session tag
 # with the default min_consecutive=2), Speech appears once (window-only).
@@ -56,9 +81,10 @@ class _Handler(BaseHTTPRequestHandler):
         if self.path.endswith("/audio/transcriptions"):
             payload = {"text": STUB_TEXT, "received_bytes": len(body)}
         elif self.path.endswith("/audio/diarizations"):
+            split = len(body) > STUB_SPLIT_THRESHOLD_BYTES
             payload = {
-                "turns": STUB_TURNS,
-                "embeddings": STUB_EMBEDDINGS,
+                "turns": STUB_SPLIT_TURNS if split else STUB_TURNS,
+                "embeddings": STUB_SPLIT_EMBEDDINGS if split else STUB_EMBEDDINGS,
                 "model": STUB_DIAR_MODEL,
                 "received_bytes": len(body),
             }

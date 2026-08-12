@@ -159,26 +159,61 @@ each tier discovers its own input):
    30 s joins, ≤ 30 min, closed at span boundaries) because label consistency
    needs long context. Emits `speaker-turn` artifacts with
    **block-namespaced** labels (`b{start}:SPEAKER_00` — local identity only;
-   global identity is the future clustering tier's job), **`utterance`**
-   artifacts — same-speaker turns merged when the gap is ≤ 1.5 s, capped at
-   the ASR input window (30 s), the units the transcribe tier consumes — and
-   one `speaker-embedding` artifact per (block, speaker) whose vector lives
+   global identity is the clustering tier's job), **`utterance`** artifacts —
+   same-speaker turns merged when the gap is ≤ 1.5 s, capped at the ASR
+   input window (30 s), the units the transcribe tier consumes — and one
+   `speaker-embedding` artifact per (block, final label) whose vector lives
    in the `speaker_embeddings` table (pgvector, cascade-deleted with its
    artifact row), queryable with distance operators for the clustering tier.
+
+   The service returns per-turn embeddings (clean audio only) besides its
+   per-label aggregates, and the tier runs a **purity audit** before
+   publishing (`split_labels`): pyannote sometimes puts several people under
+   one label — its aggregate, a blend of their voices, can't reveal that,
+   and it would corrupt a voice-print and every transcript resolved through
+   it. When a label's own turn vectors form ≥2 well-separated groups
+   (`diarize_split_distance`, looser than the corpus threshold; each group ≥
+   `diarize_split_min_clean_ms` of clean talk), the label splits into
+   sub-labels (`b{start}:SPEAKER_10.0`, `.1`, … — numbered by descending
+   clean talk) and turns, utterances, transcripts, and voice-prints all
+   derive from the corrected labels. The audit errs toward splitting: a
+   false split is two clusters of one person, repairable with the existing
+   merge/pin tools; a false merge is unrepairable. Per-turn vectors are
+   deliberately ephemeral — republication recomputes them, and INFO logs
+   carry the sub-cluster distances for threshold calibration.
+
+   **Overlap is metadata, never a gate.** Turns and utterances carry
+   `overlap_ms` (time shared with other speakers; utterances prorate their
+   turns'), embeddings carry `clean_talk_ms`, and split prints carry
+   `split_of` — but overlapped speech is always still diarized and
+   transcribed; crosstalk is queryable, not suppressive. Voice-prints are
+   the clean-talk-weighted mean of the label's turn vectors (crosstalk
+   frames excluded; service aggregate as fallback when nothing is
+   poolable — exactly the print the clean-talk gate then skips). Utterance
+   merges refuse to span another speaker's interjection beyond
+   `diarize_merge_crosstalk_max_ms` (gated on the *raw* turn list, so
+   sub-`min_turn_ms` interjections still count): ASR transcribes the whole
+   rendered span, so a spanned interjection would land its words in the
+   wrong transcript. A backchannel within the budget still merges — a grunt
+   shouldn't split a sentence.
+
    Publication is atomic: delete-previous + insert-all + `diarize-map` in one
    transaction — vectors included — **and it deletes the session's
    transcripts too**: they derive from utterances that no longer exist, and
    this tier owns invalidating them. The map's presence is the completion
    marker and retries are idempotent. A malformed embedding from the service
-   is dropped with a warning (turns are the load-bearing output). Service
-   seam: `processing/diarizer.py` → the diar_pyannote container
+   is dropped with a warning (turns are the load-bearing output); a service
+   without per-turn support degrades to exactly the pre-audit behavior.
+   Service seam: `processing/diarizer.py` → the diar_pyannote container
    (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-3.1.
 3. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
    `utterance` artifacts with no transcribe job (anti-join on
    `processing_jobs.artifact_id`), renders each from the timeline, sends it
    to the transcription service, and records a `transcript` artifact on the
-   same range — full text, speaker label, and model in metadata; **no blob**
-   (utterances are short, the row is the store). When diarize republishes,
+   same range — full text, speaker label, model, and the utterance's
+   `overlap_ms` in metadata (crosstalk stays queryable per transcript
+   without joining back to the utterance); **no blob** (utterances are
+   short, the row is the store). When diarize republishes,
    utterances get new ids, so the anti-join re-enqueues them and queued jobs
    whose utterance vanished skip themselves. Transcripts therefore wait on
    the whole session's diarization — the cost of gating ASR on the detector
@@ -199,7 +234,14 @@ each tier discovers its own input):
    `speaker_embeddings.speaker_id` — a resolve-at-read mapping, so
    re-clustering never rewrites transcripts; local labels stay provenance.
    Embeddings under `cluster_min_talk_ms` of speech are skipped as
-   unreliable, unless pinned. The same batch runs on demand via
+   unreliable, unless pinned — the gate reads **clean** (non-overlapped)
+   talk when the diarizer recorded it, falling back to raw talk for prints
+   from before overlap tracking: a voice that only ever spoke under
+   crosstalk is exactly the unreliable print the gate exists to skip. The
+   members inspection clip is the label's *cleanest* utterance (most
+   non-overlapped audio), not its longest — in a crowded scene the longest
+   clip is full of other people talking over, and a listener would blame the
+   voice-print for voices never assigned to it. The same batch runs on demand via
    `POST /v1/speakers/recluster`, `cli speakers recluster` (one-off
    `--distance`/`--min-talk-ms` flags) and the web UI's clustering-settings
    panel; all three serialize per user on an advisory lock. Manual tools:

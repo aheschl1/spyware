@@ -83,7 +83,9 @@ class TranscriptEvent(ArtifactEventBase):
     speaker: str | None = Field(
         None,
         description="Diarized speaker of the utterance (block-namespaced, "
-        "e.g. ``b109176:SPEAKER_00``); labels are stable within a block only.",
+        "e.g. ``b109176:SPEAKER_00``); labels are stable within a block only. "
+        "A ``.N`` suffix (``b109176:SPEAKER_00.1``) marks a sub-label minted "
+        "by the purity audit when one diarizer label held several voices.",
     )
     speaker_id: UUID | None = Field(
         None,

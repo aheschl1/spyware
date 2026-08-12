@@ -72,6 +72,29 @@ class ProcessingSettings(BaseSettings):
     # rationale as vad_max_span_ms.
     diarize_utterance_merge_gap_ms: int = 1_500
     diarize_max_utterance_ms: int = 30_000
+    # A same-speaker merge may not span another speaker's speech beyond this:
+    # ASR transcribes the whole rendered span, so an interjection inside a
+    # merge gap lands in the wrong speaker's transcript. Small enough to
+    # tolerate grunt-level backchannels, which shouldn't split a sentence.
+    diarize_merge_crosstalk_max_ms: int = 300
+
+    # Purity audit: pyannote can wrongly put several people under one local
+    # label; per-turn embeddings (clean audio only) are locally clustered per
+    # label and well-separated groups become sub-labels (SPEAKER_XX.0, .1…).
+    # The split threshold is looser than the corpus cluster_distance because
+    # within-block recording conditions are uniform — it should only fire on
+    # clearly-bimodal labels (calibrated: same voice ≲0.6, different ~0.9).
+    diarize_split_distance: float = 0.7
+    # A sub-cluster must carry this much clean speech to become a sub-label;
+    # smaller groups fold into the nearest surviving one. Calibrated on a
+    # real 13-speaker glasses block: at 2s virtually every label sheds a
+    # marginal ~2s group (turn-level vectors are noisy), at 5s only strong
+    # second voices split — and same-voice over-splits self-heal anyway when
+    # the corpus HAC re-merges prints closer than cluster_distance.
+    diarize_split_min_clean_ms: int = 5_000
+    # Turn embeddings from less clean audio than this don't vote in the
+    # audit (mirrors the service's EMBED_MIN_CLEAN_MS floor).
+    diarize_turn_min_clean_ms: int = 1_000
 
     # Audio-tag tier: sound-event classes + CLAP embeddings per ~10s window.
     # The base URL speaks the audio_tagger contract (POST {base}/audio/analyze

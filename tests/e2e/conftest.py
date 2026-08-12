@@ -138,6 +138,11 @@ def test_env(
         # The stub's turns are 150ms; the default 3s gate would silently
         # skip every embedding and no cluster test could pass.
         "PROCESSING_CLUSTER_MIN_TALK_MS": "100",
+        # The split-scenario stub turns carry 200-250ms of clean audio each;
+        # the real-world floors (1s vote, 2s per sub-group) would veto every
+        # split before the purity audit could be exercised.
+        "PROCESSING_DIARIZE_TURN_MIN_CLEAN_MS": "100",
+        "PROCESSING_DIARIZE_SPLIT_MIN_CLEAN_MS": "200",
     }
     os.environ.update(env)
 

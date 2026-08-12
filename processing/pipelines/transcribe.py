@@ -54,6 +54,7 @@ class TranscribePipeline(Pipeline):
                     "start_ms": utterance.start_ms,
                     "end_ms": utterance.end_ms,
                     "speaker": utterance.metadata.get("speaker"),
+                    "overlap_ms": utterance.metadata.get("overlap_ms"),
                 },
                 dedup_key=f"{self.name}:artifact:{utterance.id}",
             )
@@ -69,6 +70,7 @@ class TranscribePipeline(Pipeline):
             return {"skipped": "utterance deleted before transcription"}
         start_ms, end_ms = job.payload["start_ms"], job.payload["end_ms"]
         speaker = job.payload.get("speaker")
+        overlap_ms = job.payload.get("overlap_ms")
 
         try:
             line = await timeline.load_timeline(job.session_id)
@@ -105,6 +107,11 @@ class TranscribePipeline(Pipeline):
                         "chars": len(result.text),
                         "model": self._settings.transcriber_model,
                         "speaker": speaker,
+                        # Copied from the utterance: overlapped speech is
+                        # always transcribed (overlap never gates ASR), but
+                        # "this transcript contains crosstalk" must stay
+                        # queryable without joining back to the utterance.
+                        "overlap_ms": overlap_ms,
                     },
                 )
             )
