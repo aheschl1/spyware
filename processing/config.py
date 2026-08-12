@@ -121,14 +121,14 @@ class ProcessingSettings(BaseSettings):
     # `enter` and holds while `sustain` does. `sustain` must stay above
     # audio_tag_window_min_score (0.15): below that floor a label is simply
     # absent, so the service's floor would be making the call instead of us.
-    sound_span_enter_score: float = 0.35
-    sound_span_sustain_score: float = 0.20
+    sound_span_enter_score: float = 0.40
+    sound_span_sustain_score: float = 0.30
     # Dropout tolerance as ms of audio no member window covered — not a window
     # count, so it survives missing windows and hop changes.
     sound_span_bridge_gap_ms: int = 5_000
     # A one-window span is already ~10s wide, so the evidence floor is stated
     # in windows rather than milliseconds.
-    sound_span_min_windows: int = 2
+    sound_span_min_windows: int = 3
     # Classes rank by total covered time, not peak. Lower than audio_tag_top_k
     # because each class becomes a timeline lane.
     sound_span_top_k: int = 8
