@@ -96,14 +96,29 @@ class TranscribeAbPipeline(Pipeline):
         except stitch.NotStitchable as exc:
             return {"skipped": str(exc)}
 
+        # Republication up front, then INCREMENTAL inserts: candidates appear
+        # as they're produced, which is what lets the UI show live progress.
+        # A retried run re-deletes and starts over.
+        async with DatabasePipe() as pipe:
+            await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
+
         errors = 0
-        candidates: list[ArtifactCreate] = []
+        produced = 0
+
+        async def publish(batch: list[ArtifactCreate]) -> None:
+            nonlocal produced
+            if not batch:
+                return
+            async with DatabasePipe() as pipe:
+                await pipe.artifacts.create_many(batch)
+            produced += len(batch)
 
         for u in utterances:
             try:
                 clip = await timeline.render_range(line, u.start_ms, u.end_ms)
             except timeline.NotRenderable:
                 continue
+            batch: list[ArtifactCreate] = []
             for model in MODELS:
                 try:
                     result = await self._transcriber.transcribe(
@@ -118,9 +133,10 @@ class TranscribeAbPipeline(Pipeline):
                     {"w": w.word, "s": u.start_ms + w.start_ms, "e": u.start_ms + w.end_ms}
                     for w in (result.words or ())
                 ]
-                candidates.append(
+                batch.append(
                     self._candidate(job, u, model, "chunk", result.text, words, result.language)
                 )
+            await publish(batch)
 
         blocks = _blocks(utterances)
         for (block_start, block_end), members in blocks.items():
@@ -148,23 +164,23 @@ class TranscribeAbPipeline(Pipeline):
                 if failed:
                     continue
                 assigned = assign_words(words, members)
-                for u in members:
-                    mine = assigned[u.id]
-                    text = " ".join(w["w"] for w in mine)
-                    candidates.append(
-                        self._candidate(job, u, model, "block", text, mine, language)
-                    )
+                await publish(
+                    [
+                        self._candidate(
+                            job, u, model, "block",
+                            " ".join(w["w"] for w in assigned[u.id]),
+                            assigned[u.id], language,
+                        )
+                        for u in members
+                    ]
+                )
 
-        if not candidates and errors:
+        if not produced and errors:
             raise TranscriberError(f"no candidates produced ({errors} errors)")
 
-        async with DatabasePipe() as pipe:
-            # Republication: one run owns the session's whole candidate set.
-            await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
-            await pipe.artifacts.create_many(candidates)
         return {
             "utterances": len(utterances),
-            "candidates": len(candidates),
+            "candidates": produced,
             "blocks": len(blocks),
             "errors": errors,
         }

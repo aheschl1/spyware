@@ -41,9 +41,14 @@ export default function AbVoteView({
     return () => clearInterval(timer)
   }, [generating, refresh])
 
+  // Mid-generation, only complete quads are votable; a finished (possibly
+  // degraded) run makes anything with candidates votable.
   const votable = useMemo(
-    () => (ab?.utterances ?? []).filter((u) => u.candidates.length > 0),
-    [ab],
+    () =>
+      (ab?.utterances ?? []).filter((u) =>
+        generating ? u.candidates.length >= 4 : u.candidates.length > 0,
+      ),
+    [ab, generating],
   )
 
   const vote = useCallback(
@@ -132,7 +137,18 @@ export default function AbVoteView({
           ))}
         </div>
       ) : generating ? (
-        <div className="banner">generating candidates… this page refreshes itself</div>
+        <div className="banner ab-progress-banner">
+          <span>
+            generating candidates… {ab.candidates}/{ab.expected}
+          </span>
+          <span className="ab-bar">
+            <span
+              className="ab-bar-fill"
+              style={{ width: `${Math.min(100, (ab.candidates / Math.max(1, ab.expected)) * 100)}%` }}
+            />
+          </span>
+          <span className="row-dim">votable cards appear as they complete</span>
+        </div>
       ) : ab.status === "dead" ? (
         <div className="banner error">candidate generation failed — regenerate from the A/B tab</div>
       ) : votable.length === 0 ? (

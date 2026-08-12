@@ -59,6 +59,8 @@ class AbSessionRead(BaseModel):
     status: str  # none | queued | running | succeeded | dead
     total: int
     voted: int
+    candidates: int
+    expected: int  # 4 per utterance; degraded runs may finish below it
     utterances: list[AbUtteranceRead]
 
 
@@ -89,11 +91,14 @@ class AbTallyRead(BaseModel):
         return cls(model=row.model, strategy=row.strategy, wins=row.wins)
 
 
-class AbSessionVotes(BaseModel):
+class AbSessionState(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     session_id: UUID
     votes: int
+    status: str  # queued | running | succeeded | dead
+    candidates: int
+    expected: int
 
 
 class AbResultsRead(BaseModel):
@@ -101,4 +106,4 @@ class AbResultsRead(BaseModel):
 
     total: int
     tally: list[AbTallyRead]
-    sessions: list[AbSessionVotes]
+    sessions: list[AbSessionState]  # every enrolled session, live run state

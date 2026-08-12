@@ -64,6 +64,7 @@ async def test_enrollment_generates_four_blinded_candidates(
     body = await _payload(client, account, session.id)
     assert body["status"] == "succeeded"
     assert body["total"] == 2 and body["voted"] == 0
+    assert body["candidates"] == 8 and body["expected"] == 8
     first, second = body["utterances"]
 
     assert (first["start_ms"], first["end_ms"]) == (0, 150)
@@ -159,7 +160,16 @@ async def test_vote_promotes_winner_and_tallies(
     body = results.json()
     assert body["total"] == 1
     assert body["tally"][0]["model"] == "parakeet" and body["tally"][0]["wins"] == 1
-    assert body["sessions"] == [{"session_id": str(session.id), "votes": 1}]
+    # Every enrolled session reports its live run state for the overview.
+    assert body["sessions"] == [
+        {
+            "session_id": str(session.id),
+            "votes": 1,
+            "status": "succeeded",
+            "candidates": 8,
+            "expected": 8,
+        }
+    ]
 
 
 async def test_votes_survive_regeneration(

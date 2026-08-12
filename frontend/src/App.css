@@ -1557,6 +1557,55 @@ button.row:hover,
   gap: 10px;
 }
 
+.ab-generating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.ab-dead {
+  color: var(--red);
+}
+
+.ab-mini {
+  display: inline-block;
+  width: 54px;
+  height: 5px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ab-mini-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.ab-progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ab-bar {
+  flex: 1;
+  max-width: 320px;
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ab-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transition: width 0.4s ease;
+}
+
 /* ------------- small screens */
 
 @media (max-width: 640px) {

@@ -797,7 +797,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Global A/B tally */
+        /** Global A/B tally + per-session run state */
         get: operations["ab_results_v1_ab_results_get"];
         put?: never;
         post?: never;
@@ -874,7 +874,7 @@ export interface components {
             /** Tally */
             tally: components["schemas"]["AbTallyRead"][];
             /** Sessions */
-            sessions: components["schemas"]["AbSessionVotes"][];
+            sessions: components["schemas"]["AbSessionState"][];
         };
         /** AbSessionRead */
         AbSessionRead: {
@@ -884,11 +884,15 @@ export interface components {
             total: number;
             /** Voted */
             voted: number;
+            /** Candidates */
+            candidates: number;
+            /** Expected */
+            expected: number;
             /** Utterances */
             utterances: components["schemas"]["AbUtteranceRead"][];
         };
-        /** AbSessionVotes */
-        AbSessionVotes: {
+        /** AbSessionState */
+        AbSessionState: {
             /**
              * Session Id
              * Format: uuid
@@ -896,6 +900,12 @@ export interface components {
             session_id: string;
             /** Votes */
             votes: number;
+            /** Status */
+            status: string;
+            /** Candidates */
+            candidates: number;
+            /** Expected */
+            expected: number;
         };
         /** AbTallyRead */
         AbTallyRead: {

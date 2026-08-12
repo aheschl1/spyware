@@ -19,13 +19,14 @@ from api.schema.ab import (
     AbEnrollResponse,
     AbResultsRead,
     AbSessionRead,
-    AbSessionVotes,
+    AbSessionState,
     AbTallyRead,
     AbUtteranceRead,
     AbVoteRead,
     AbVoteRequest,
     AbVoteResponse,
 )
+from database.repos.pipelines.transcribe_ab import AbQueries
 from database.schema.artifacts import ArtifactCreate
 from database.schema.jobs import JobCreate
 
@@ -34,16 +35,23 @@ router = APIRouter(tags=["ab"])
 _PIPELINE = "transcribe-ab"
 
 
-@router.get("/ab/results", summary="Global A/B tally")
+@router.get("/ab/results", summary="Global A/B tally + per-session run state")
 async def ab_results(user: CurrentUser, pipe: Pipe) -> AbResultsRead:
     tally = await pipe.ab_votes.tally(user.id)
     by_session = await pipe.ab_votes.counts_by_session(user.id)
+    states = await AbQueries(pipe.connection).session_states(user.id)
     return AbResultsRead(
         total=sum(row.wins for row in tally),
         tally=[AbTallyRead.from_model(row) for row in tally],
         sessions=[
-            AbSessionVotes(session_id=sid, votes=n)
-            for sid, n in sorted(by_session.items(), key=lambda kv: -kv[1])
+            AbSessionState(
+                session_id=row["session_id"],
+                votes=by_session.get(row["session_id"], 0),
+                status=row["status"],
+                candidates=row["candidates"],
+                expected=row["expected"],
+            )
+            for row in states
         ],
     )
 
@@ -111,6 +119,8 @@ async def ab_session(session: OwnedSession, pipe: Pipe) -> AbSessionRead:
         status=jobs[-1].status.value if jobs else "none",
         total=len(rows),
         voted=sum(1 for r in rows if r.vote is not None),
+        candidates=len(candidates),
+        expected=len(utterances) * 4,
         utterances=rows,
     )
 

@@ -3021,7 +3021,7 @@
         "tags": [
           "ab"
         ],
-        "summary": "Global A/B tally",
+        "summary": "Global A/B tally + per-session run state",
         "operationId": "ab_results_v1_ab_results_get",
         "responses": {
           "200": {
@@ -3336,7 +3336,7 @@
           },
           "sessions": {
             "items": {
-              "$ref": "#/components/schemas/AbSessionVotes"
+              "$ref": "#/components/schemas/AbSessionState"
             },
             "type": "array",
             "title": "Sessions"
@@ -3364,6 +3364,14 @@
             "type": "integer",
             "title": "Voted"
           },
+          "candidates": {
+            "type": "integer",
+            "title": "Candidates"
+          },
+          "expected": {
+            "type": "integer",
+            "title": "Expected"
+          },
           "utterances": {
             "items": {
               "$ref": "#/components/schemas/AbUtteranceRead"
@@ -3377,11 +3385,13 @@
           "status",
           "total",
           "voted",
+          "candidates",
+          "expected",
           "utterances"
         ],
         "title": "AbSessionRead"
       },
-      "AbSessionVotes": {
+      "AbSessionState": {
         "properties": {
           "session_id": {
             "type": "string",
@@ -3391,14 +3401,29 @@
           "votes": {
             "type": "integer",
             "title": "Votes"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "candidates": {
+            "type": "integer",
+            "title": "Candidates"
+          },
+          "expected": {
+            "type": "integer",
+            "title": "Expected"
           }
         },
         "type": "object",
         "required": [
           "session_id",
-          "votes"
+          "votes",
+          "status",
+          "candidates",
+          "expected"
         ],
-        "title": "AbSessionVotes"
+        "title": "AbSessionState"
       },
       "AbTallyRead": {
         "properties": {
