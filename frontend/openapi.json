@@ -3410,6 +3410,10 @@
             "type": "integer",
             "title": "Candidates"
           },
+          "votable": {
+            "type": "integer",
+            "title": "Votable"
+          },
           "expected": {
             "type": "integer",
             "title": "Expected"
@@ -3421,6 +3425,7 @@
           "votes",
           "status",
           "candidates",
+          "votable",
           "expected"
         ],
         "title": "AbSessionState"

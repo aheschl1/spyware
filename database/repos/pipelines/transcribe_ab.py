@@ -17,6 +17,7 @@ class AbQueries(BaseRepo):
                     SELECT s.id AS session_id,
                            j.status,
                            coalesce(c.n, 0) AS candidates,
+                           coalesce(c.votable, 0) AS votable,
                            coalesce(u.n, 0) * 4 AS expected
                     FROM recording_sessions s
                     JOIN LATERAL (
@@ -25,7 +26,9 @@ class AbQueries(BaseRepo):
                         ORDER BY created_at DESC LIMIT 1
                     ) j ON true
                     LEFT JOIN LATERAL (
-                        SELECT count(*) AS n FROM pipeline_artifacts
+                        SELECT count(*) AS n,
+                               count(DISTINCT links->>'utterance') AS votable
+                        FROM pipeline_artifacts
                         WHERE session_id = s.id AND pipeline = 'transcribe-ab'
                           AND kind = 'transcript-candidate'
                     ) c ON true

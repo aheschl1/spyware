@@ -98,6 +98,7 @@ class AbSessionState(BaseModel):
     votes: int
     status: str  # queued | running | succeeded | dead
     candidates: int
+    votable: int  # distinct utterances holding >=1 candidate; done = votes >= votable
     expected: int
 
 

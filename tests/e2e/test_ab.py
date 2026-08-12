@@ -167,6 +167,7 @@ async def test_vote_promotes_winner_and_tallies(
             "votes": 1,
             "status": "succeeded",
             "candidates": 8,
+            "votable": 2,
             "expected": 8,
         }
     ]

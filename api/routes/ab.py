@@ -49,6 +49,7 @@ async def ab_results(user: CurrentUser, pipe: Pipe) -> AbResultsRead:
                 votes=by_session.get(row["session_id"], 0),
                 status=row["status"],
                 candidates=row["candidates"],
+                votable=row["votable"],
                 expected=row["expected"],
             )
             for row in states

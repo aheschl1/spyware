@@ -904,6 +904,8 @@ export interface components {
             status: string;
             /** Candidates */
             candidates: number;
+            /** Votable */
+            votable: number;
             /** Expected */
             expected: number;
         };

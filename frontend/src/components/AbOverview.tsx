@@ -32,10 +32,20 @@ function StatusChip({ state }: { state: State }) {
   return <span className="chip">{state.candidates} candidates</span>
 }
 
+function isDone(state: State | undefined): boolean {
+  return (
+    state !== undefined &&
+    state.status === "succeeded" &&
+    state.votable > 0 &&
+    state.votes >= state.votable
+  )
+}
+
 export default function AbOverview({ onVote }: { onVote: (sessionId: string) => void }) {
   const [results, setResults] = useState<AbResultsRead | null>(null)
   const [sessions, setSessions] = useState<SessionRead[] | null>(null)
   const [queued, setQueued] = useState<Record<string, boolean>>({})
+  const [showDone, setShowDone] = useState(false)
 
   const refresh = useCallback(async () => {
     const [tally, list] = await Promise.all([
@@ -127,15 +137,22 @@ export default function AbOverview({ onVote }: { onVote: (sessionId: string) => 
         )}
       </div>
 
-      <div className="list">
-        {sessions === null ? (
-          [64, 64, 64].map((height, i) => <div key={i} className="skeleton" style={{ height }} />)
-        ) : sessions.length === 0 ? (
-          <div className="empty">No sessions yet.</div>
-        ) : (
-          sessions.map((session) => {
+      {sessions === null ? (
+        <div className="list">
+          {[64, 64, 64].map((height, i) => (
+            <div key={i} className="skeleton" style={{ height }} />
+          ))}
+        </div>
+      ) : sessions.length === 0 ? (
+        <div className="empty">No sessions yet.</div>
+      ) : (
+        (() => {
+          const open = sessions.filter((s) => !isDone(stateFor(s.id)))
+          const done = sessions.filter((s) => isDone(stateFor(s.id)))
+          const row = (session: SessionRead) => {
             const state = stateFor(session.id)
-            const busy = queued[session.id] || state?.status === "queued" || state?.status === "running"
+            const busy =
+              queued[session.id] || state?.status === "queued" || state?.status === "running"
             return (
               <div key={session.id} className="row ab-session-row">
                 <div className="row-main">
@@ -150,7 +167,11 @@ export default function AbOverview({ onVote }: { onVote: (sessionId: string) => 
                     <span className="spinner" /> queued…
                   </span>
                 )}
-                {(state?.votes ?? 0) > 0 && <span className="chip strong">{state!.votes} voted</span>}
+                {(state?.votes ?? 0) > 0 && (
+                  <span className="chip strong">
+                    {state!.votes}/{state!.votable} voted
+                  </span>
+                )}
                 <button
                   className="btn ghost slim"
                   disabled={busy}
@@ -167,9 +188,31 @@ export default function AbOverview({ onVote }: { onVote: (sessionId: string) => 
                 </button>
               </div>
             )
-          })
-        )}
-      </div>
+          }
+          return (
+            <>
+              <div className="list">
+                {open.length === 0 ? (
+                  <div className="empty">Every enrolled session is fully voted.</div>
+                ) : (
+                  open.map(row)
+                )}
+              </div>
+              {done.length > 0 && (
+                <>
+                  <button
+                    className="btn ghost full ab-voted-toggle"
+                    onClick={() => setShowDone((prev) => !prev)}
+                  >
+                    {showDone ? "▾" : "▸"} done voting ({done.length})
+                  </button>
+                  {showDone && <div className="list">{done.map(row)}</div>}
+                </>
+              )}
+            </>
+          )
+        })()
+      )}
     </div>
   )
 }
