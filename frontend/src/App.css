@@ -1423,6 +1423,212 @@ button.row:hover,
   overflow: hidden;
 }
 
+/* ------------- transcription A/B */
+
+.ab-view,
+.ab-overview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.ab-toolbar {
+  position: sticky;
+  top: 58px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  background: var(--bg);
+}
+
+.ab-keys {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.ab-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ab-card.focused {
+  border-color: var(--accent);
+}
+
+.ab-card.voted {
+  opacity: 0.75;
+}
+
+.ab-card .ab-head {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+}
+
+.ab-cands {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ab-cand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 10px;
+  text-align: left;
+  background: var(--surface2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.ab-cand:hover {
+  border-color: var(--accent);
+}
+
+.ab-cand.winner {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 8%, var(--surface2));
+}
+
+.ab-cand-text {
+  flex: 1;
+  line-height: 1.4;
+}
+
+.ab-tally {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: var(--pad);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.ab-tally-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.ab-tally-table th,
+.ab-tally-table td {
+  text-align: left;
+  padding: 6px 10px 6px 0;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.ab-tally-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.ab-share {
+  display: inline-block;
+  width: 120px;
+  height: 6px;
+  margin-right: 8px;
+  vertical-align: middle;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ab-share-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+}
+
+.ab-session-row {
+  align-items: center;
+  gap: 10px;
+}
+
+.ab-voted-toggle {
+  color: var(--text-muted);
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.ab-generating {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ab-dead {
+  color: var(--red);
+}
+
+.ab-mini {
+  display: inline-block;
+  width: 54px;
+  height: 5px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.ab-mini-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.ab-progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ab-bar {
+  flex: 1;
+  max-width: 320px;
+  height: 8px;
+  background: var(--surface2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ab-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+  transition: width 0.4s ease;
+}
+
 /* ------------- small screens */
 
 @media (max-width: 640px) {

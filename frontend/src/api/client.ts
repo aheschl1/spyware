@@ -23,6 +23,9 @@ export type SpeakerTranscriptRead = Schemas["SpeakerTranscriptRead"]
 export type SessionSpeakerRead = Schemas["SessionSpeakerRead"]
 export type AudioSearchRead = Schemas["AudioSearchRead"]
 export type MeRead = Schemas["MeRead"]
+export type AbSessionRead = Schemas["AbSessionRead"]
+export type AbUtteranceRead = Schemas["AbUtteranceRead"]
+export type AbResultsRead = Schemas["AbResultsRead"]
 
 const auth: Middleware = {
   onRequest({ request }) {

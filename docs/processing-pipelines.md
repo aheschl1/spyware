@@ -252,11 +252,43 @@ each tier discovers its own input):
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
-(`openai` protocol — our `asr_canary` container serving nvidia/canary-qwen-2.5b,
-or speaches, or a hosted endpoint) or a Replicate cog wrapper (`cog`).
-Swapping models/backends is env-only. Canary-qwen is English-only and emits
-no word timestamps — timing granularity is the utterance; a forced-alignment
-tier can refine it later on the same artifact model.
+(`openai` protocol — our `asr_parakeet` container serving
+nvidia/parakeet-tdt-0.6b-v3, or speaches, or a hosted endpoint) or a
+Replicate cog wrapper (`cog`). Swapping models/backends is env-only.
+Parakeet's TDT decoder emits native word timestamps and auto-detects among
+25 European languages; the sidecar returns them clip-relative and the tier
+stores them session-absolute in transcript metadata (`words`:
+`[{w, s, e}]` ms, plus `language`) — the timeline API still serves
+utterance-granularity spans, and a user edit drops `words` (the timings no
+longer match the text). A text-only backend keeps working: `words` and
+`language` are optional extensions of the response. Transcript full-text
+search still uses the `'english'` FTS config (migration 0009) — revisit if
+non-English `language` values start appearing. `cli sessions retranscribe
+<id>` redoes one session's transcripts with the current backend (deletes the
+tier's artifacts + job history; discovery re-queues every utterance;
+manual edits are lost).
+
+**transcribe-ab** (`processing/pipelines/transcribe_ab.py`) is the
+model-evaluation tier: chained-only (its `discover` returns nothing) —
+`POST /v1/sessions/{id}/ab` inserts the job directly. One run republishes,
+per utterance, four `transcript-candidate` artifacts: parakeet and whisper
+(the sidecar serves both; `?model=` selects), each via two strategies —
+`chunk` (the utterance clip, as production does) and `block` (the whole
+diarize block transcribed once, words rebased to session time and assigned
+to utterances by midpoint; a crosstalk word lands in every covering span).
+Candidates are served BLIND by `GET /v1/sessions/{id}/ab` (no model/strategy,
+deterministic shuffle) and never touch the canonical transcript; voting
+(`POST /v1/sessions/{id}/ab/votes`) derives model/strategy server-side from
+the winning candidate, upserts one `ab_votes` row per utterance (model +
+strategy denormalized so the tally survives regeneration), and promotes the
+winner's text/words into the `transcribe`/`transcript` artifact — the one
+location the timeline and search read. `GET /v1/ab/results` is the running
+model × strategy tally. Frontend: the "ab" tab (tally + enroll) and the
+per-session blinded voting page (A–D rows, keyboard 1–4/j/k/space, reveal
+after vote). **The first experiment concluded 2026-08 — parakeet·chunk won;
+see `docs/asr-ab-results.md`.** Whisper is disabled in the sidecar until
+re-enabled (`ASR_WHISPER_ENABLED=1`); enrolling sessions meanwhile yields
+parakeet-only candidates (whisper calls count as errors).
 
 ## The audio-tag tiers
 

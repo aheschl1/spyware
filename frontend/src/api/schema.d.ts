@@ -790,10 +790,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ab/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Global A/B tally + per-session run state */
+        get: operations["ab_results_v1_ab_results_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/ab": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blinded voting payload */
+        get: operations["ab_session_v1_sessions__session_id__ab_get"];
+        put?: never;
+        /**
+         * Generate A/B candidates
+         * @description Queue (or re-queue) the candidate run. Regeneration republishes the
+         *     candidate set; votes survive it by design.
+         */
+        post: operations["enroll_v1_sessions__session_id__ab_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/ab/votes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Vote the best candidate */
+        post: operations["vote_v1_sessions__session_id__ab_votes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AbCandidateRead */
+        AbCandidateRead: {
+            /**
+             * Candidate Id
+             * Format: uuid
+             */
+            candidate_id: string;
+            /** Text */
+            text: string;
+            /** Chars */
+            chars: number;
+        };
+        /** AbEnrollResponse */
+        AbEnrollResponse: {
+            /** Queued */
+            queued: boolean;
+        };
+        /** AbResultsRead */
+        AbResultsRead: {
+            /** Total */
+            total: number;
+            /** Tally */
+            tally: components["schemas"]["AbTallyRead"][];
+            /** Sessions */
+            sessions: components["schemas"]["AbSessionState"][];
+        };
+        /** AbSessionRead */
+        AbSessionRead: {
+            /** Status */
+            status: string;
+            /** Total */
+            total: number;
+            /** Voted */
+            voted: number;
+            /** Candidates */
+            candidates: number;
+            /** Expected */
+            expected: number;
+            /** Utterances */
+            utterances: components["schemas"]["AbUtteranceRead"][];
+        };
+        /** AbSessionState */
+        AbSessionState: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Votes */
+            votes: number;
+            /** Status */
+            status: string;
+            /** Candidates */
+            candidates: number;
+            /** Votable */
+            votable: number;
+            /** Expected */
+            expected: number;
+        };
+        /** AbTallyRead */
+        AbTallyRead: {
+            /** Model */
+            model: string;
+            /** Strategy */
+            strategy: string;
+            /** Wins */
+            wins: number;
+        };
+        /** AbUtteranceRead */
+        AbUtteranceRead: {
+            /**
+             * Utterance Artifact Id
+             * Format: uuid
+             */
+            utterance_artifact_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /** Speaker */
+            speaker?: string | null;
+            /** Candidates */
+            candidates: components["schemas"]["AbCandidateRead"][];
+            vote?: components["schemas"]["AbVoteRead"] | null;
+        };
+        /** AbVoteRead */
+        AbVoteRead: {
+            /** Candidate Id */
+            candidate_id?: string | null;
+            /** Model */
+            model: string;
+            /** Strategy */
+            strategy: string;
+        };
+        /** AbVoteRequest */
+        AbVoteRequest: {
+            /**
+             * Utterance Artifact Id
+             * Format: uuid
+             */
+            utterance_artifact_id: string;
+            /**
+             * Candidate Artifact Id
+             * Format: uuid
+             */
+            candidate_artifact_id: string;
+        };
+        /** AbVoteResponse */
+        AbVoteResponse: {
+            /** Model */
+            model: string;
+            /** Strategy */
+            strategy: string;
+            /** Text */
+            text: string;
+        };
         /**
          * ArtifactRead
          * @description A pipeline output attached to a session, as served over HTTP.
@@ -3958,6 +4130,198 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TranscriptSearchResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ab_results_v1_ab_results_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbResultsRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    ab_session_v1_sessions__session_id__ab_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbSessionRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enroll_v1_sessions__session_id__ab_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbEnrollResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vote_v1_sessions__session_id__ab_votes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AbVoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbVoteResponse"];
                 };
             };
             /** @description Unauthorized */

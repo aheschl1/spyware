@@ -373,6 +373,34 @@ async def sessions_delete(session_id: UUID, yes: bool) -> None:
     click.echo(f"deleted session and {removed} object(s)")
 
 
+@sessions.command("retranscribe")
+@click.argument("session_id", type=click.UUID)
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+@async_command
+async def sessions_retranscribe(session_id: UUID, yes: bool) -> None:
+    """Redo a session's transcripts with the current ASR backend.
+
+    Deletes the transcribe tier's artifacts and job history in one
+    transaction; the worker's discovery re-queues every utterance.
+    Manual edits to transcripts are lost.
+    """
+    if not yes:
+        click.confirm(
+            f"re-transcribe session {session_id}? existing transcripts "
+            "(including manual edits) are deleted",
+            abort=True,
+        )
+    async with DatabasePipe() as pipe:
+        if await pipe.sessions.get(session_id) is None:
+            raise NotFoundError("session", str(session_id))
+        transcripts = await pipe.artifacts.delete_for_pipeline(session_id, "transcribe")
+        jobs = await pipe.jobs.delete_for_session(session_id, "transcribe")
+    click.echo(
+        f"deleted {transcripts} transcript(s) and {jobs} job(s); "
+        "the worker will re-transcribe every utterance"
+    )
+
+
 # ------------------------------------------------------------------------ speakers
 
 

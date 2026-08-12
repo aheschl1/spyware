@@ -19,6 +19,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from database.config import DatabaseSettings, get_settings
+from database.repos.ab_votes import AbVotesRepo
 from database.repos.artifacts import ArtifactsRepo
 from database.repos.cluster_params import ClusterParamsRepo
 from database.repos.embeddings import AudioEmbeddingsRepo, EmbeddingsRepo
@@ -144,6 +145,10 @@ class DatabasePipe:
     @cached_property
     def cluster_params(self) -> ClusterParamsRepo:
         return ClusterParamsRepo(self.connection)
+
+    @cached_property
+    def ab_votes(self) -> AbVotesRepo:
+        return AbVotesRepo(self.connection)
 
     @cached_property
     def tags(self) -> TagsRepo:

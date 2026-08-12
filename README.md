@@ -119,7 +119,10 @@ session renaming), timeline (transcripts, speakers, sound tags), seekable audio
 playback, text→audio search, and speaker curation: labeling, merging split voices (distance-ranked
 candidates, same-name prompt), inspecting a cluster's voice-prints by ear,
 moving/ejecting wrong voices (pinned so rebuilds honor it), and tuning the
-clustering threshold + recomputing from a settings panel. Dev-mode only for now:
+clustering threshold + recomputing from a settings panel. The "ab" tab runs
+the transcription A/B: blinded per-utterance voting between parakeet and
+whisper (chunk vs whole-block strategies) — the winner becomes the timeline
+transcript and feeds a model × strategy tally. Dev-mode only for now:
 
 ```bash
 make api    # terminal 1 — the API on 127.0.0.1:8000

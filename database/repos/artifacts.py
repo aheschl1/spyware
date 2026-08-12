@@ -98,20 +98,36 @@ class ArtifactsRepo(BaseRepo):
             (artifact_id,),
         )
 
-    async def merge_metadata(
-        self, artifact_id: UUID, patch: dict
+    async def find_by_link(
+        self, pipeline: str, kind: str, key: str, target: str
     ) -> PipelineArtifact | None:
-        """Merge ``patch`` into the artifact's metadata (jsonb ``||``, so
-        untouched keys survive) — the user-curation path, e.g. transcript
-        edits. Pipelines republish whole artifacts instead."""
+        """The newest matching artifact linking ``target`` under ``key``."""
         return await self._fetch_one(
             PipelineArtifact,
             f"""
-                UPDATE pipeline_artifacts SET metadata = metadata || %s
+                SELECT {COLUMNS} FROM pipeline_artifacts
+                WHERE pipeline = %s AND kind = %s AND links->>%s = %s
+                ORDER BY created_at DESC LIMIT 1
+            """,
+            (pipeline, kind, key, target),
+        )
+
+    async def merge_metadata(
+        self, artifact_id: UUID, patch: dict, *, drop: Sequence[str] = ()
+    ) -> PipelineArtifact | None:
+        """Merge ``patch`` into the artifact's metadata (jsonb ``||``, so
+        untouched keys survive) — the user-curation path, e.g. transcript
+        edits. ``drop`` removes keys first: an edit invalidates derived data
+        like word timings. Pipelines republish whole artifacts instead."""
+        return await self._fetch_one(
+            PipelineArtifact,
+            f"""
+                UPDATE pipeline_artifacts
+                SET metadata = (metadata - %s::text[]) || %s
                 WHERE id = %s
                 RETURNING {COLUMNS}
             """,
-            (Jsonb(patch), artifact_id),
+            (list(drop), Jsonb(patch), artifact_id),
         )
 
     async def find(

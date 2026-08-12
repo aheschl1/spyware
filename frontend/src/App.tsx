@@ -1,17 +1,20 @@
 import { useEffect, useState } from "react"
 import { clearToken, getToken, setExpiryHandler } from "./api/auth"
 import { api, type MeRead } from "./api/client"
+import AbOverview from "./components/AbOverview"
+import AbVoteView from "./components/AbVoteView"
 import Gate from "./components/Gate"
 import SearchView from "./components/SearchView"
 import SessionList from "./components/SessionList"
 import SessionView from "./components/SessionView"
 import SpeakersView from "./components/SpeakersView"
 
-type Tab = "sessions" | "search" | "speakers"
+type Tab = "sessions" | "search" | "speakers" | "ab"
 
 type View =
   | { kind: "list"; tab: Tab }
   | { kind: "session"; id: string; seekMs?: number }
+  | { kind: "ab"; id: string }
 
 export default function App() {
   const [authed, setAuthed] = useState(() => getToken() !== null)
@@ -43,7 +46,7 @@ export default function App() {
       <header className="topbar">
         <span className="brand">spyware</span>
         <nav className="tabs">
-          {(["sessions", "search", "speakers"] as const).map((tab) => (
+          {(["sessions", "search", "speakers", "ab"] as const).map((tab) => (
             <button
               key={tab}
               className={`tab ${activeTab === tab && view.kind === "list" ? "active" : ""}`}
@@ -75,11 +78,20 @@ export default function App() {
             seekMs={view.seekMs}
             onBack={() => setView({ kind: "list", tab: "sessions" })}
             onOpenSession={openSession}
+            onAb={(id) => setView({ kind: "ab", id })}
+          />
+        ) : view.kind === "ab" ? (
+          <AbVoteView
+            key={view.id}
+            sessionId={view.id}
+            onBack={() => setView({ kind: "list", tab: "ab" })}
           />
         ) : view.tab === "sessions" ? (
           <SessionList onOpen={openSession} />
         ) : view.tab === "search" ? (
           <SearchView onOpen={openSession} />
+        ) : view.tab === "ab" ? (
+          <AbOverview onVote={(id) => setView({ kind: "ab", id })} />
         ) : (
           <SpeakersView onOpen={openSession} />
         )}

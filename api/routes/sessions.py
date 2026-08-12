@@ -208,7 +208,9 @@ async def edit_transcript(
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="transcript not found")
     updated = await pipe.artifacts.merge_metadata(
-        artifact_id, {"text": body.text, "chars": len(body.text), "edited": True}
+        artifact_id,
+        {"text": body.text, "chars": len(body.text), "edited": True},
+        drop=("words",),  # stale word timings are worse than none
     )
     assert updated is not None  # just fetched it, same transaction
     return ArtifactRead.from_model(updated)

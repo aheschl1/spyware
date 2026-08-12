@@ -10,8 +10,23 @@ tests.e2e.stub_audio_services PORT`` next to the real worker process.
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
 
 STUB_TEXT = "hello from the stub transcriber"
+# Clip-relative ms, like a real timestamped backend; the tier offsets them
+# onto the session timeline.
+STUB_WORDS = [
+    {"word": word, "start_ms": i * 20, "end_ms": i * 20 + 15}
+    for i, word in enumerate(STUB_TEXT.split())
+]
+STUB_LANGUAGE = "en"
+# The second A/B model, selected with ?model=whisper — distinct text so
+# candidates are tellable-apart in assertions.
+STUB_WHISPER_TEXT = "greetings from the stub whisper"
+STUB_WHISPER_WORDS = [
+    {"word": word, "start_ms": i * 20, "end_ms": i * 20 + 15}
+    for i, word in enumerate(STUB_WHISPER_TEXT.split())
+]
 
 # Two turns and two speakers, fixed: the e2e sessions are ~300ms of tone.
 # No per-turn fields — this is deliberately the OLD service shape, so every
@@ -78,8 +93,16 @@ class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 (http.server's naming)
         length = int(self.headers.get("content-length", 0))
         body = self.rfile.read(length)
-        if self.path.endswith("/audio/transcriptions"):
-            payload = {"text": STUB_TEXT, "received_bytes": len(body)}
+        url = urlparse(self.path)
+        if url.path.endswith("/audio/transcriptions"):
+            model = parse_qs(url.query).get("model", ["parakeet"])[0]
+            whisper = model == "whisper"
+            payload = {
+                "text": STUB_WHISPER_TEXT if whisper else STUB_TEXT,
+                "words": STUB_WHISPER_WORDS if whisper else STUB_WORDS,
+                "language": STUB_LANGUAGE,
+                "received_bytes": len(body),
+            }
         elif self.path.endswith("/audio/diarizations"):
             split = len(body) > STUB_SPLIT_THRESHOLD_BYTES
             payload = {

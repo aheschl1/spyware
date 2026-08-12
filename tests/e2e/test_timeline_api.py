@@ -40,6 +40,10 @@ async def _seed(session_id) -> dict[str, str]:
                 metadata={
                     "text": "hello there", "chars": 11, "model": "stub",
                     "speaker": "b1000:SPEAKER_00",
+                    "words": [
+                        {"w": "hello", "s": 1_000, "e": 1_400},
+                        {"w": "there", "s": 1_500, "e": 2_000},
+                    ],
                 },
             )
         )
@@ -173,6 +177,7 @@ async def test_edit_transcript_updates_timeline_and_search_source(
     assert metadata["chars"] == len("hello, there!")
     assert metadata["edited"] is True
     assert metadata["speaker"] == "b1000:SPEAKER_00"  # untouched keys survive
+    assert "words" not in metadata  # edited text invalidates word timings
 
     timeline = await client.get(
         f"/v1/sessions/{session.id}/timeline", headers=account.headers
