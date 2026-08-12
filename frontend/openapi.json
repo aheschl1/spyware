@@ -3015,10 +3015,540 @@
           }
         }
       }
+    },
+    "/v1/ab/results": {
+      "get": {
+        "tags": [
+          "ab"
+        ],
+        "summary": "Global A/B tally",
+        "operationId": "ab_results_v1_ab_results_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbResultsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/ab": {
+      "post": {
+        "tags": [
+          "ab"
+        ],
+        "summary": "Generate A/B candidates",
+        "description": "Queue (or re-queue) the candidate run. Regeneration republishes the\ncandidate set; votes survive it by design.",
+        "operationId": "enroll_v1_sessions__session_id__ab_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbEnrollResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "ab"
+        ],
+        "summary": "Blinded voting payload",
+        "operationId": "ab_session_v1_sessions__session_id__ab_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbSessionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/ab/votes": {
+      "post": {
+        "tags": [
+          "ab"
+        ],
+        "summary": "Vote the best candidate",
+        "operationId": "vote_v1_sessions__session_id__ab_votes_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AbVoteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AbVoteResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AbCandidateRead": {
+        "properties": {
+          "candidate_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Candidate Id"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "chars": {
+            "type": "integer",
+            "title": "Chars"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidate_id",
+          "text",
+          "chars"
+        ],
+        "title": "AbCandidateRead"
+      },
+      "AbEnrollResponse": {
+        "properties": {
+          "queued": {
+            "type": "boolean",
+            "title": "Queued"
+          }
+        },
+        "type": "object",
+        "required": [
+          "queued"
+        ],
+        "title": "AbEnrollResponse"
+      },
+      "AbResultsRead": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "tally": {
+            "items": {
+              "$ref": "#/components/schemas/AbTallyRead"
+            },
+            "type": "array",
+            "title": "Tally"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/AbSessionVotes"
+            },
+            "type": "array",
+            "title": "Sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total",
+          "tally",
+          "sessions"
+        ],
+        "title": "AbResultsRead"
+      },
+      "AbSessionRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "voted": {
+            "type": "integer",
+            "title": "Voted"
+          },
+          "utterances": {
+            "items": {
+              "$ref": "#/components/schemas/AbUtteranceRead"
+            },
+            "type": "array",
+            "title": "Utterances"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "total",
+          "voted",
+          "utterances"
+        ],
+        "title": "AbSessionRead"
+      },
+      "AbSessionVotes": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "votes": {
+            "type": "integer",
+            "title": "Votes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "votes"
+        ],
+        "title": "AbSessionVotes"
+      },
+      "AbTallyRead": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "wins": {
+            "type": "integer",
+            "title": "Wins"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "strategy",
+          "wins"
+        ],
+        "title": "AbTallyRead"
+      },
+      "AbUtteranceRead": {
+        "properties": {
+          "utterance_artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Utterance Artifact Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/AbCandidateRead"
+            },
+            "type": "array",
+            "title": "Candidates"
+          },
+          "vote": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AbVoteRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "utterance_artifact_id",
+          "start_ms",
+          "end_ms",
+          "candidates"
+        ],
+        "title": "AbUtteranceRead"
+      },
+      "AbVoteRead": {
+        "properties": {
+          "candidate_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "strategy"
+        ],
+        "title": "AbVoteRead"
+      },
+      "AbVoteRequest": {
+        "properties": {
+          "utterance_artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Utterance Artifact Id"
+          },
+          "candidate_artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Candidate Artifact Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "utterance_artifact_id",
+          "candidate_artifact_id"
+        ],
+        "title": "AbVoteRequest"
+      },
+      "AbVoteResponse": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "strategy",
+          "text"
+        ],
+        "title": "AbVoteResponse"
+      },
       "ArtifactRead": {
         "properties": {
           "id": {

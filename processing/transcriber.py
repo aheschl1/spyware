@@ -71,19 +71,24 @@ class Transcriber:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def transcribe(self, wav: bytes, *, filename: str = "clip.wav") -> Transcription:
+    async def transcribe(
+        self, wav: bytes, *, filename: str = "clip.wav", model: str | None = None
+    ) -> Transcription:
         try:
             if self._protocol == "openai":
-                return await self._transcribe_openai(wav, filename)
+                return await self._transcribe_openai(wav, filename, model)
             return await self._transcribe_cog(wav)
         except httpx.HTTPError as exc:
             raise TranscriberError(f"transcriber unreachable: {exc}") from exc
 
-    async def _transcribe_openai(self, wav: bytes, filename: str) -> Transcription:
+    async def _transcribe_openai(
+        self, wav: bytes, filename: str, model: str | None
+    ) -> Transcription:
         response = await self._client.post(
             f"{self._base_url}/audio/transcriptions",
+            params={"model": model} if model else None,
             files={"file": (filename, wav, "audio/wav")},
-            data={"model": self._model, "response_format": "json"},
+            data={"model": model or self._model, "response_format": "json"},
         )
         body = self._json_or_raise(response)
         text = body.get("text")

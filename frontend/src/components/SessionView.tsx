@@ -17,11 +17,13 @@ export default function SessionView({
   sessionId,
   seekMs,
   onBack,
+  onAb,
 }: {
   sessionId: string
   seekMs?: number
   onBack: () => void
   onOpenSession: (id: string, seekMs?: number) => void
+  onAb?: (id: string) => void
 }) {
   const [session, setSession] = useState<SessionRead | null>(null)
   // Rename draft; null while the title is just being displayed.
@@ -143,6 +145,15 @@ export default function SessionView({
               >
                 rename
               </button>
+              {onAb && (
+                <button
+                  className="btn ghost slim"
+                  title="vote on transcript candidates"
+                  onClick={() => onAb(session.id)}
+                >
+                  A/B
+                </button>
+              )}
             </h2>
           ) : (
             <form

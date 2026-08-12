@@ -98,6 +98,20 @@ class ArtifactsRepo(BaseRepo):
             (artifact_id,),
         )
 
+    async def find_by_link(
+        self, pipeline: str, kind: str, key: str, target: str
+    ) -> PipelineArtifact | None:
+        """The newest matching artifact linking ``target`` under ``key``."""
+        return await self._fetch_one(
+            PipelineArtifact,
+            f"""
+                SELECT {COLUMNS} FROM pipeline_artifacts
+                WHERE pipeline = %s AND kind = %s AND links->>%s = %s
+                ORDER BY created_at DESC LIMIT 1
+            """,
+            (pipeline, kind, key, target),
+        )
+
     async def merge_metadata(
         self, artifact_id: UUID, patch: dict, *, drop: Sequence[str] = ()
     ) -> PipelineArtifact | None:

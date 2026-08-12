@@ -268,6 +268,25 @@ non-English `language` values start appearing. `cli sessions retranscribe
 tier's artifacts + job history; discovery re-queues every utterance;
 manual edits are lost).
 
+**transcribe-ab** (`processing/pipelines/transcribe_ab.py`) is the
+model-evaluation tier: chained-only (its `discover` returns nothing) —
+`POST /v1/sessions/{id}/ab` inserts the job directly. One run republishes,
+per utterance, four `transcript-candidate` artifacts: parakeet and whisper
+(the sidecar serves both; `?model=` selects), each via two strategies —
+`chunk` (the utterance clip, as production does) and `block` (the whole
+diarize block transcribed once, words rebased to session time and assigned
+to utterances by midpoint; a crosstalk word lands in every covering span).
+Candidates are served BLIND by `GET /v1/sessions/{id}/ab` (no model/strategy,
+deterministic shuffle) and never touch the canonical transcript; voting
+(`POST /v1/sessions/{id}/ab/votes`) derives model/strategy server-side from
+the winning candidate, upserts one `ab_votes` row per utterance (model +
+strategy denormalized so the tally survives regeneration), and promotes the
+winner's text/words into the `transcribe`/`transcript` artifact — the one
+location the timeline and search read. `GET /v1/ab/results` is the running
+model × strategy tally. Frontend: the "ab" tab (tally + enroll) and the
+per-session blinded voting page (A–D rows, keyboard 1–4/j/k/space, reveal
+after vote).
+
 ## The audio-tag tiers
 
 `audio-tag` (`processing/pipelines/audio_tag.py`) runs beside the speech
