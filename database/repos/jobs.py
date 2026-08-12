@@ -212,6 +212,16 @@ class JobsRepo(BaseRepo):
             (session_id, limit, offset),
         )
 
+    async def delete_for_session(self, session_id: UUID, pipeline: str) -> int:
+        """Forget one pipeline's job history for a session so discovery
+        re-queues its inputs (the anti-join sees no jobs, and dedup keys
+        are freed). The redo-a-tier primitive; a mid-run worker's succeed()
+        finding its row gone is harmless."""
+        return await self._execute(
+            "DELETE FROM processing_jobs WHERE session_id = %s AND pipeline = %s",
+            (session_id, pipeline),
+        )
+
     async def count_by_status(self, pipeline: str) -> dict[str, int]:
         async with self._conn.cursor() as cur:
             await cur.execute(

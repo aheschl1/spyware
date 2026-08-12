@@ -99,19 +99,21 @@ class ArtifactsRepo(BaseRepo):
         )
 
     async def merge_metadata(
-        self, artifact_id: UUID, patch: dict
+        self, artifact_id: UUID, patch: dict, *, drop: Sequence[str] = ()
     ) -> PipelineArtifact | None:
         """Merge ``patch`` into the artifact's metadata (jsonb ``||``, so
         untouched keys survive) — the user-curation path, e.g. transcript
-        edits. Pipelines republish whole artifacts instead."""
+        edits. ``drop`` removes keys first: an edit invalidates derived data
+        like word timings. Pipelines republish whole artifacts instead."""
         return await self._fetch_one(
             PipelineArtifact,
             f"""
-                UPDATE pipeline_artifacts SET metadata = metadata || %s
+                UPDATE pipeline_artifacts
+                SET metadata = (metadata - %s::text[]) || %s
                 WHERE id = %s
                 RETURNING {COLUMNS}
             """,
-            (Jsonb(patch), artifact_id),
+            (list(drop), Jsonb(patch), artifact_id),
         )
 
     async def find(

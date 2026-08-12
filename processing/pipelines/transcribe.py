@@ -87,6 +87,26 @@ class TranscribePipeline(Pipeline):
             clip, filename=f"{job.session_id}-{start_ms}-{end_ms}.wav"
         )
 
+        metadata: dict[str, Any] = {
+            "text": result.text,
+            "chars": len(result.text),
+            "model": self._settings.transcriber_model,
+            "speaker": speaker,
+            # Copied from the utterance: overlapped speech is
+            # always transcribed (overlap never gates ASR), but
+            # "this transcript contains crosstalk" must stay
+            # queryable without joining back to the utterance.
+            "overlap_ms": overlap_ms,
+        }
+        if result.words is not None:
+            # Session-absolute ms: the clip was rendered from start_ms.
+            metadata["words"] = [
+                {"w": w.word, "s": start_ms + w.start_ms, "e": start_ms + w.end_ms}
+                for w in result.words
+            ]
+        if result.language is not None:
+            metadata["language"] = result.language
+
         async with DatabasePipe() as pipe:
             # Re-check inside the insert transaction: diarize may have
             # replaced the utterance while we were transcribing. (A commit
@@ -102,17 +122,7 @@ class TranscribePipeline(Pipeline):
                     start_ms=start_ms,
                     end_ms=end_ms,
                     links={"utterance": str(job.artifact_id)},
-                    metadata={
-                        "text": result.text,
-                        "chars": len(result.text),
-                        "model": self._settings.transcriber_model,
-                        "speaker": speaker,
-                        # Copied from the utterance: overlapped speech is
-                        # always transcribed (overlap never gates ASR), but
-                        # "this transcript contains crosstalk" must stay
-                        # queryable without joining back to the utterance.
-                        "overlap_ms": overlap_ms,
-                    },
+                    metadata=metadata,
                 )
             )
         return {"chars": len(result.text), "span_ms": end_ms - start_ms}

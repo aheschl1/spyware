@@ -4,6 +4,8 @@ supervisor discovering, running, chaining, retrying, and deduplicating jobs.
 
 import asyncio
 import json
+import subprocess
+import sys
 import time
 
 import httpx
@@ -12,6 +14,7 @@ from database.pipe import DatabasePipe
 from database.schema.jobs import JobStatus
 from database.schema.sessions import SessionCreate
 from tests.e2e.conftest import (
+    REPO_ROOT,
     TEST_BUCKET,
     Account,
     ingest,
@@ -19,6 +22,7 @@ from tests.e2e.conftest import (
     make_session,
     wait_for_job,
 )
+from tests.e2e.stub_audio_services import STUB_LANGUAGE, STUB_WORDS
 from tests.wav import wav_bytes
 
 
@@ -148,6 +152,16 @@ async def test_diarized_utterances_are_transcribed(worker: None, clean_state) ->
         )
         assert transcript.metadata["text"] == "hello from the stub transcriber"
         assert transcript.metadata["speaker"] == utterance.metadata["speaker"]
+        assert transcript.metadata["language"] == STUB_LANGUAGE
+        # Word timings arrive clip-relative and land session-absolute.
+        assert transcript.metadata["words"] == [
+            {
+                "w": word["word"],
+                "s": utterance.start_ms + word["start_ms"],
+                "e": utterance.start_ms + word["end_ms"],
+            }
+            for word in STUB_WORDS
+        ]
         # Postgres-only: the row is the store.
         assert transcript.bucket is None and transcript.object_key is None
 
@@ -156,6 +170,44 @@ async def test_diarized_utterances_are_transcribed(worker: None, clean_state) ->
     transcribe_jobs = [j for j in jobs if j.pipeline == "transcribe"]
     assert {j.artifact_id for j in transcribe_jobs} == {u.id for u in utterances}
     assert all(j.payload["speaker"] for j in transcribe_jobs)
+
+
+async def _wait_for_transcripts(session_id, count: int) -> list:
+    deadline = time.monotonic() + 15.0
+    transcripts: list = []
+    while time.monotonic() < deadline and len(transcripts) < count:
+        async with DatabasePipe() as pipe:
+            transcripts = await pipe.artifacts.list_for_session(
+                session_id, kind="transcript"
+            )
+        await asyncio.sleep(0.1)
+    assert len(transcripts) == count, "transcripts did not appear in time"
+    return transcripts
+
+
+async def test_retranscribe_regenerates_transcripts(worker: None, clean_state) -> None:
+    """``sessions retranscribe`` drops the tier's artifacts and job history;
+    the running worker re-discovers every utterance and writes fresh rows."""
+    account = await make_account()
+    session, _ = await _ended_session_with_segments(account)
+    async with DatabasePipe() as pipe:
+        await pipe.sessions.end(session.id)
+    await wait_for_job(session.id, "transcribe", JobStatus.SUCCEEDED)
+    old_ids = {t.id for t in await _wait_for_transcripts(session.id, 2)}
+
+    result = subprocess.run(
+        [sys.executable, "-m", "cli.main", "sessions", "retranscribe",
+         str(session.id), "--yes"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "2 transcript(s)" in result.stdout
+
+    fresh = await _wait_for_transcripts(session.id, 2)
+    assert {t.id for t in fresh}.isdisjoint(old_ids)
+    assert all(t.metadata["words"] for t in fresh)
 
 
 async def test_speech_is_diarized_with_embeddings(worker: None, clean_state) -> None:

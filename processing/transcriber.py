@@ -4,8 +4,10 @@ The transcribe tier depends on this interface, not on any particular model or
 container. Two wire protocols cover every practical backend:
 
 - ``openai`` — the standard transcriptions API (``POST {base}/audio/
-  transcriptions``, multipart), spoken by our own asr_canary container, by
+  transcriptions``, multipart), spoken by our own asr_parakeet container, by
   speaches/faster-whisper, and by hosted providers. This is the default.
+  Backends may extend the response with clip-relative ``words`` timestamps
+  and a ``language``; both are optional and text-only backends keep working.
 - ``cog`` — Replicate cog images run locally (``POST {base}/predictions``,
   base64 JSON), for out-of-the-box community containers.
 
@@ -26,9 +28,33 @@ class TranscriberError(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class Word:
+    word: str
+    start_ms: int
+    end_ms: int
+
+
+@dataclass(frozen=True, slots=True)
 class Transcription:
     text: str
     raw: dict[str, Any]  # the service's full response, persisted verbatim
+    words: tuple[Word, ...] | None = None  # clip-relative ms; None if the backend has none
+    language: str | None = None
+
+
+def _parse_words(body: dict[str, Any]) -> tuple[Word, ...] | None:
+    entries = body.get("words")
+    if not isinstance(entries, list):
+        return None
+    words = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            return None
+        word, start, end = entry.get("word"), entry.get("start_ms"), entry.get("end_ms")
+        if not isinstance(word, str) or not isinstance(start, int) or not isinstance(end, int):
+            return None
+        words.append(Word(word=word, start_ms=start, end_ms=end))
+    return tuple(words)
 
 
 class Transcriber:
@@ -63,7 +89,13 @@ class Transcriber:
         text = body.get("text")
         if not isinstance(text, str):
             raise TranscriberError(f"no text in transcriber response: {body!r}")
-        return Transcription(text=text.strip(), raw=body)
+        language = body.get("language")
+        return Transcription(
+            text=text.strip(),
+            raw=body,
+            words=_parse_words(body),
+            language=language if isinstance(language, str) else None,
+        )
 
     async def _transcribe_cog(self, wav: bytes) -> Transcription:
         audio = "data:audio/wav;base64," + base64.b64encode(wav).decode()

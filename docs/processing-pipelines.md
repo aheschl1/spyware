@@ -252,11 +252,21 @@ each tier discovers its own input):
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
-(`openai` protocol — our `asr_canary` container serving nvidia/canary-qwen-2.5b,
-or speaches, or a hosted endpoint) or a Replicate cog wrapper (`cog`).
-Swapping models/backends is env-only. Canary-qwen is English-only and emits
-no word timestamps — timing granularity is the utterance; a forced-alignment
-tier can refine it later on the same artifact model.
+(`openai` protocol — our `asr_parakeet` container serving
+nvidia/parakeet-tdt-0.6b-v3, or speaches, or a hosted endpoint) or a
+Replicate cog wrapper (`cog`). Swapping models/backends is env-only.
+Parakeet's TDT decoder emits native word timestamps and auto-detects among
+25 European languages; the sidecar returns them clip-relative and the tier
+stores them session-absolute in transcript metadata (`words`:
+`[{w, s, e}]` ms, plus `language`) — the timeline API still serves
+utterance-granularity spans, and a user edit drops `words` (the timings no
+longer match the text). A text-only backend keeps working: `words` and
+`language` are optional extensions of the response. Transcript full-text
+search still uses the `'english'` FTS config (migration 0009) — revisit if
+non-English `language` values start appearing. `cli sessions retranscribe
+<id>` redoes one session's transcripts with the current backend (deletes the
+tier's artifacts + job history; discovery re-queues every utterance;
+manual edits are lost).
 
 ## The audio-tag tiers
 

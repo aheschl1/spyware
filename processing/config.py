@@ -55,7 +55,7 @@ class ProcessingSettings(BaseSettings):
     # ("openai" protocol: POST {base}/audio/transcriptions) or a cog wrapper
     # ("cog": POST {base}/predictions) — swapping backends is env-only.
     transcriber_base_url: str = "http://127.0.0.1:8033/v1"
-    transcriber_model: str = "nvidia/canary-qwen-2.5b"
+    transcriber_model: str = "nvidia/parakeet-tdt-0.6b-v3"
     transcriber_protocol: str = "openai"  # or "cog"
     transcriber_timeout_seconds: float = 600.0
 

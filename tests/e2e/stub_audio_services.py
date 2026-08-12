@@ -12,6 +12,13 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STUB_TEXT = "hello from the stub transcriber"
+# Clip-relative ms, like a real timestamped backend; the tier offsets them
+# onto the session timeline.
+STUB_WORDS = [
+    {"word": word, "start_ms": i * 20, "end_ms": i * 20 + 15}
+    for i, word in enumerate(STUB_TEXT.split())
+]
+STUB_LANGUAGE = "en"
 
 # Two turns and two speakers, fixed: the e2e sessions are ~300ms of tone.
 # No per-turn fields — this is deliberately the OLD service shape, so every
@@ -79,7 +86,12 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("content-length", 0))
         body = self.rfile.read(length)
         if self.path.endswith("/audio/transcriptions"):
-            payload = {"text": STUB_TEXT, "received_bytes": len(body)}
+            payload = {
+                "text": STUB_TEXT,
+                "words": STUB_WORDS,
+                "language": STUB_LANGUAGE,
+                "received_bytes": len(body),
+            }
         elif self.path.endswith("/audio/diarizations"):
             split = len(body) > STUB_SPLIT_THRESHOLD_BYTES
             payload = {
