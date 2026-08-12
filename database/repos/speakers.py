@@ -111,7 +111,6 @@ class SpeakersRepo(BaseRepo):
             (name, speaker_id),
         )
 
-    # ----------------------------------------------------------- clustering
 
     async def corpus_for_user(self, user_id: UUID) -> list[CorpusEmbedding]:
         """Every voice-print of the user with its previous assignment and pin
