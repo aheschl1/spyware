@@ -8,6 +8,7 @@ from uuid import uuid4
 from api.timeline_events import assemble
 from database.schema.artifacts import PipelineArtifact
 from database.schema.sessions import RecordingSession
+from database.schema.speakers import SessionSpeakerLabel
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -129,18 +130,27 @@ def test_orphan_transcript_still_appears() -> None:
 def test_speaker_map_stamps_global_identity_on_transcripts() -> None:
     resolved = _transcript(0, 1_000, speaker="b0:SPEAKER_00")
     unresolved = _transcript(2_000, 3_000, speaker="b0:SPEAKER_01")
-    speaker_id = uuid4()
+    speaker_id, voiceprint_id = uuid4(), uuid4()
 
     events = assemble(
         _session(),
         [resolved, unresolved],
-        speakers={"b0:SPEAKER_00": (speaker_id, "Mom")},
+        speakers={
+            "b0:SPEAKER_00": SessionSpeakerLabel(
+                speaker="b0:SPEAKER_00",
+                artifact_id=voiceprint_id,
+                speaker_id=speaker_id,
+                name="Mom",
+            )
+        },
     )
 
     stamped, plain = events[1:]
     assert stamped.speaker_id == speaker_id and stamped.speaker_name == "Mom"
+    assert stamped.voiceprint_id == voiceprint_id  # the reassign handle
     assert stamped.speaker == "b0:SPEAKER_00"  # provenance survives
     assert plain.speaker_id is None and plain.speaker_name is None
+    assert plain.voiceprint_id is None
 
     # No map at all: nothing is stamped, nothing breaks.
     bare = assemble(_session(), [resolved])
@@ -152,7 +162,11 @@ def test_speaker_map_names_can_be_null() -> None:
     events = assemble(
         _session(),
         [_transcript(0, 1_000, speaker="b0:SPEAKER_00")],
-        speakers={"b0:SPEAKER_00": (uuid4(), None)},
+        speakers={
+            "b0:SPEAKER_00": SessionSpeakerLabel(
+                speaker="b0:SPEAKER_00", artifact_id=uuid4(), speaker_id=uuid4()
+            )
+        },
     )
     assert events[1].speaker_id is not None and events[1].speaker_name is None
 

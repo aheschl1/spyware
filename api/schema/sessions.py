@@ -22,6 +22,27 @@ class SessionCreateRequest(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class SessionLabelRequest(BaseModel):
+    """Body of ``POST /sessions/{id}/label``. ``label`` is required so an
+    empty body is a 422, never a silent clear; send an explicit null to
+    remove the name and fall back to the device/id display."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str | None = Field(
+        description="The name to set, or null to clear it.", max_length=200
+    )
+
+
+class TranscriptEditRequest(BaseModel):
+    """Body of ``POST /sessions/{id}/transcripts/{artifact_id}``. Empty text
+    is rejected — correcting an utterance never silently erases it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    text: str = Field(description="The corrected transcript text.", min_length=1)
+
+
 class SessionRead(BaseModel):
     """A recording session as served over HTTP.
 

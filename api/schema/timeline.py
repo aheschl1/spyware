@@ -25,6 +25,12 @@ class ArtifactEventBase(TimelineEventBase):
     """An event derived from one pipeline artifact."""
 
     artifact_id: UUID = Field(description="The pipeline artifact this event derives from.")
+    voiceprint_id: UUID | None = Field(
+        None,
+        description="The voice-print (embedding artifact) behind this event's "
+        "speaker, when one resolved — the member id for the speaker "
+        "reassign/unpin routes; null when the event carries no clustered voice.",
+    )
 
 
 class SessionStartEvent(TimelineEventBase):

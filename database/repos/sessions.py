@@ -130,6 +130,25 @@ class SessionsRepo(BaseRepo):
             raise NotFoundError("recording session", session_id)
         return session
 
+    async def set_label(self, session_id: UUID, label: str | None) -> RecordingSession:
+        """Rename a session, or clear the name with ``None``.
+
+        Open and ended sessions alike: the label is user curation, not part of
+        the capture record.
+        """
+        session = await self._fetch_one(
+            RecordingSession,
+            f"""
+                UPDATE recording_sessions SET label = %s
+                WHERE id = %s
+                RETURNING {COLUMNS}
+            """,
+            (label, session_id),
+        )
+        if session is None:
+            raise NotFoundError("recording session", session_id)
+        return session
+
     async def delete(self, session_id: UUID) -> bool:
         """Delete a session and, by cascade, its segment rows.
 

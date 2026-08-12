@@ -9,7 +9,6 @@ Registering one expander is all a new tier needs to appear on the timeline.
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import timedelta
 from itertools import chain
-from uuid import UUID
 
 from api.schema.timeline import (
     AudioTagEvent,
@@ -22,6 +21,7 @@ from api.schema.timeline import (
 )
 from database.schema.artifacts import PipelineArtifact
 from database.schema.sessions import RecordingSession
+from database.schema.speakers import SessionSpeakerLabel
 
 Expander = Callable[[PipelineArtifact], Iterator[TimelineEvent]]
 
@@ -120,7 +120,7 @@ def assemble(
     *,
     from_ms: int | None = None,
     to_ms: int | None = None,
-    speakers: Mapping[str, tuple[UUID, str | None]] | None = None,
+    speakers: Mapping[str, SessionSpeakerLabel] | None = None,
 ) -> list[TimelineEvent]:
     """Every event derivable from the rows, in timeline order.
 
@@ -128,10 +128,10 @@ def assemble(
     an artifact overlapping the window contributes just the events inside it,
     so adjacent windows partition the stream — no duplicates, no gaps.
 
-    ``speakers`` maps block-local labels to ``(speaker_id, name)`` from the
-    clustering tier; matching transcript events get stamped with the global
-    identity. Unresolvable labels stay null — clustering is eventually
-    consistent with diarization.
+    ``speakers`` maps block-local labels to their clustering-tier resolution;
+    matching transcript events get stamped with the global identity and the
+    voice-print behind it. Unresolvable labels stay null — clustering is
+    eventually consistent with diarization.
     """
     events: Iterator[TimelineEvent] = chain(
         _session_events(session),
@@ -149,7 +149,13 @@ def assemble(
     if not speakers:
         return ordered
     return [
-        event.model_copy(update={"speaker_id": ref[0], "speaker_name": ref[1]})
+        event.model_copy(
+            update={
+                "speaker_id": ref.speaker_id,
+                "speaker_name": ref.name,
+                "voiceprint_id": ref.artifact_id,
+            }
+        )
         if event.type == "transcript"
         and (ref := speakers.get(getattr(event, "speaker", None))) is not None
         else event

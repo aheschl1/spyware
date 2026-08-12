@@ -151,6 +151,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rename (or unname) a session
+         * @description Set the session's display name, or clear it with an explicit null.
+         *     Purely cosmetic — nothing downstream keys off the label.
+         */
+        post: operations["label_session_v1_sessions__session_id__label_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/end": {
         parameters: {
             query?: never;
@@ -264,6 +285,29 @@ export interface paths {
         get: operations["get_session_timeline_v1_sessions__session_id__timeline_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/transcripts/{artifact_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Edit a transcript's text
+         * @description Rewrite one utterance's text. The edit lands in the artifact's
+         *     metadata (text, chars, and an ``edited`` provenance flag), so the
+         *     timeline and full-text search serve it immediately — both read
+         *     ``metadata->>'text'`` live.
+         */
+        post: operations["edit_transcript_v1_sessions__session_id__transcripts__artifact_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -867,6 +911,11 @@ export interface components {
              */
             artifact_id: string;
             /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1244,6 +1293,19 @@ export interface components {
             ended_at: string;
         };
         /**
+         * SessionLabelRequest
+         * @description Body of ``POST /sessions/{id}/label``. ``label`` is required so an
+         *     empty body is a 422, never a silent clear; send an explicit null to
+         *     remove the name and fall back to the device/id display.
+         */
+        SessionLabelRequest: {
+            /**
+             * Label
+             * @description The name to set, or null to clear it.
+             */
+            label: string | null;
+        };
+        /**
          * SessionRead
          * @description A recording session as served over HTTP.
          *
@@ -1605,6 +1667,11 @@ export interface components {
              */
             artifact_id: string;
             /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -1631,6 +1698,11 @@ export interface components {
              * @description The pipeline artifact this event derives from.
              */
             artifact_id: string;
+            /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1732,6 +1804,18 @@ export interface components {
             token: string;
         };
         /**
+         * TranscriptEditRequest
+         * @description Body of ``POST /sessions/{id}/transcripts/{artifact_id}``. Empty text
+         *     is rejected — correcting an utterance never silently erases it.
+         */
+        TranscriptEditRequest: {
+            /**
+             * Text
+             * @description The corrected transcript text.
+             */
+            text: string;
+        };
+        /**
          * TranscriptEvent
          * @description What one speaker said over ``[start_ms, end_ms)``; positioned at the start.
          */
@@ -1747,6 +1831,11 @@ export interface components {
              * @description The pipeline artifact this event derives from.
              */
             artifact_id: string;
+            /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2257,6 +2346,60 @@ export interface operations {
             };
         };
     };
+    label_session_v1_sessions__session_id__label_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SessionLabelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     end_session_v1_sessions__session_id__end_post: {
         parameters: {
             query?: never;
@@ -2497,6 +2640,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_TimelineEvent_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_transcript_v1_sessions__session_id__transcripts__artifact_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                artifact_id: string;
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TranscriptEditRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ArtifactRead"];
                 };
             };
             /** @description Unauthorized */

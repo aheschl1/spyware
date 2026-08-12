@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { api, type TimelineEvent } from "../api/client"
+import { api, type TimelineEvent, type TranscriptEvent } from "../api/client"
 import { fmtClock } from "../format"
 import SpeakerChip from "./SpeakerChip"
 import TimelineFilter, { loadHidden, type EventKind } from "./TimelineFilter"
@@ -45,6 +45,10 @@ export default function Timeline({
   const [flashKey, setFlashKey] = useState<string | null>(null)
   const flashed = useRef(false)
   const [hidden, setHidden] = useState<Set<EventKind>>(loadHidden)
+  // Inline transcript correction; keyed like the rows so only one is open.
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState("")
+  const [editBusy, setEditBusy] = useState(false)
 
   const load = useCallback(
     async (offset: number, windowStart: number | null) => {
@@ -125,6 +129,30 @@ export default function Timeline({
     node?.scrollIntoView({ block: "center", behavior: "smooth" })
   }, [])
 
+  // Save a transcript correction: the row updates in place for immediate
+  // feedback, then the shared refresh re-pulls so the strip (and any other
+  // consumer of the session's events) serves the same text.
+  const saveEdit = async (event: TranscriptEvent) => {
+    const text = editDraft.trim()
+    if (!text || text === event.text) {
+      setEditingKey(null)
+      return
+    }
+    setEditBusy(true)
+    const { data } = await api.POST("/v1/sessions/{session_id}/transcripts/{artifact_id}", {
+      params: { path: { session_id: sessionId, artifact_id: event.artifact_id } },
+      body: { text },
+    })
+    setEditBusy(false)
+    if (!data) return // keep the editor open so the correction isn't lost
+    setEvents(
+      (prev) =>
+        prev?.map((e) => (e === event ? { ...e, text, chars: text.length } : e)) ?? prev,
+    )
+    setEditingKey(null)
+    onSpeakersChanged?.()
+  }
+
   // Follow mode: as playback crosses into a new utterance, nudge its row
   // into view. block:"nearest" keeps this gentle — no scroll when visible.
   useEffect(() => {
@@ -169,10 +197,59 @@ export default function Timeline({
                   clusterId={event.speaker_id}
                   name={event.speaker_name}
                   localLabel={event.speaker}
+                  memberIds={event.voiceprint_id ? [event.voiceprint_id] : undefined}
                   onChanged={() => onSpeakersChanged?.()}
                 />
               )}
-              <span className="transcript-text">{event.text}</span>
+              {editingKey === key ? (
+                <form
+                  className="transcript-edit"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    void saveEdit(event)
+                  }}
+                >
+                  <textarea
+                    className="input slim"
+                    value={editDraft}
+                    autoFocus
+                    rows={2}
+                    onChange={(e) => setEditDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") setEditingKey(null)
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault()
+                        void saveEdit(event)
+                      }
+                    }}
+                  />
+                  <button className="btn primary slim" disabled={editBusy}>
+                    {editBusy ? "saving…" : "save"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn ghost slim"
+                    disabled={editBusy}
+                    onClick={() => setEditingKey(null)}
+                  >
+                    cancel
+                  </button>
+                </form>
+              ) : (
+                <>
+                  <span className="transcript-text">{event.text}</span>
+                  <button
+                    className="btn ghost slim event-edit"
+                    title="correct this transcript"
+                    onClick={() => {
+                      setEditDraft(event.text)
+                      setEditingKey(key)
+                    }}
+                  >
+                    ✎
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )

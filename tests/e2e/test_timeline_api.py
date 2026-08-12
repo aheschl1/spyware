@@ -154,3 +154,71 @@ async def test_unprocessed_and_skipped_sessions_serve_only_session_frames(
         )
     skipped = await client.get(f"/v1/sessions/{session.id}/timeline", headers=account.headers)
     assert [item["type"] for item in skipped.json()["items"]] == ["session-start"]
+
+
+async def test_edit_transcript_updates_timeline_and_search_source(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    session = await make_session(account)
+    ids = await _seed(session.id)
+
+    edited = await client.post(
+        f"/v1/sessions/{session.id}/transcripts/{ids['transcript']}",
+        json={"text": "hello, there!"},
+        headers=account.headers,
+    )
+    assert edited.status_code == 200
+    metadata = edited.json()["metadata"]
+    assert metadata["text"] == "hello, there!"
+    assert metadata["chars"] == len("hello, there!")
+    assert metadata["edited"] is True
+    assert metadata["speaker"] == "b1000:SPEAKER_00"  # untouched keys survive
+
+    timeline = await client.get(
+        f"/v1/sessions/{session.id}/timeline", headers=account.headers
+    )
+    transcript = next(
+        item for item in timeline.json()["items"] if item["type"] == "transcript"
+    )
+    assert transcript["text"] == "hello, there!"
+    assert transcript["chars"] == len("hello, there!")
+
+    # Empty text never silently erases an utterance.
+    blank = await client.post(
+        f"/v1/sessions/{session.id}/transcripts/{ids['transcript']}",
+        json={"text": ""},
+        headers=account.headers,
+    )
+    assert blank.status_code == 422
+
+
+async def test_edit_transcript_rejects_wrong_artifacts_and_owners(
+    client: httpx.AsyncClient, account: Account, other_account: Account
+) -> None:
+    session = await make_session(account)
+    ids = await _seed(session.id)
+
+    # A non-transcript artifact of the same session is not editable text.
+    span = await client.post(
+        f"/v1/sessions/{session.id}/transcripts/{ids['span_a']}",
+        json={"text": "nope"},
+        headers=account.headers,
+    )
+    assert span.status_code == 404
+
+    # A transcript reached through someone else's session stays invisible.
+    denied = await client.post(
+        f"/v1/sessions/{session.id}/transcripts/{ids['transcript']}",
+        json={"text": "nope"},
+        headers=other_account.headers,
+    )
+    assert denied.status_code == 404
+
+    # A transcript from another session does not answer to this session's path.
+    unrelated = await make_session(account, device="glasses-02")
+    mismatched = await client.post(
+        f"/v1/sessions/{unrelated.id}/transcripts/{ids['transcript']}",
+        json={"text": "nope"},
+        headers=account.headers,
+    )
+    assert mismatched.status_code == 404

@@ -338,7 +338,7 @@ class SpeakersRepo(BaseRepo):
         return await self._fetch_all(
             SessionSpeakerLabel,
             """
-                SELECT e.speaker, e.speaker_id, s.name,
+                SELECT e.speaker, e.artifact_id, e.speaker_id, s.name,
                        (a.metadata->>'talk_ms')::bigint AS talk_ms
                 FROM speaker_embeddings e
                 LEFT JOIN speakers s ON s.id = e.speaker_id

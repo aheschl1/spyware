@@ -32,6 +32,9 @@ type Lane = {
   clusterId: string | null
   name: string | null
   localLabel: string | null
+  // Voice-prints behind this lane (one per diarization block) — what the
+  // chip's "just this voice" reassign moves.
+  memberIds: string[]
   talkMs: number
   blocks: TranscriptEvent[]
 }
@@ -57,6 +60,7 @@ function buildLanes(events: TimelineEvent[]): Lane[] {
         clusterId: event.speaker_id ?? null,
         name: null,
         localLabel: null,
+        memberIds: [],
         talkMs: 0,
         blocks: [],
       }
@@ -64,6 +68,8 @@ function buildLanes(events: TimelineEvent[]): Lane[] {
     }
     lane.name ??= event.speaker_name ?? null
     lane.localLabel ??= event.speaker ?? null
+    if (event.voiceprint_id && !lane.memberIds.includes(event.voiceprint_id))
+      lane.memberIds.push(event.voiceprint_id)
     lane.talkMs += Math.max(0, event.end_ms - event.start_ms)
     lane.blocks.push(event)
   }
@@ -339,6 +345,7 @@ export default function TimelineStrip({
                 clusterId={lane.clusterId}
                 name={lane.name}
                 localLabel={lane.localLabel}
+                memberIds={lane.memberIds}
                 onChanged={onSpeakersChanged}
               />
               <span className="strip-talk">{fmtClock(lane.talkMs)}</span>

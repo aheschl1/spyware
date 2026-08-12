@@ -6,8 +6,9 @@ Audio enters a session through the streaming websocket (see
 
 from collections.abc import AsyncIterator
 from datetime import timedelta
+from uuid import UUID
 
-from fastapi import APIRouter, Query, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api import session_audio, timeline_events
@@ -18,7 +19,12 @@ from api.schema.artifacts import ArtifactRead
 from api.schema.auth import PlaybackTokenRead
 from api.schema.common import ErrorResponse, Page
 from api.schema.segments import SegmentRead
-from api.schema.sessions import SessionCreateRequest, SessionRead
+from api.schema.sessions import (
+    SessionCreateRequest,
+    SessionLabelRequest,
+    SessionRead,
+    TranscriptEditRequest,
+)
 from api.schema.speakers import SessionSpeakerRead
 from api.schema.timeline import TimelineEvent
 from database.schema.sessions import SessionCreate
@@ -65,6 +71,15 @@ async def list_sessions(
 @router.get("/{session_id}", summary="Fetch one recording session")
 async def get_session(session: OwnedSession) -> SessionRead:
     return SessionRead.from_model(session)
+
+
+@router.post("/{session_id}/label", summary="Rename (or unname) a session")
+async def label_session(
+    session: OwnedSession, pipe: Pipe, body: SessionLabelRequest
+) -> SessionRead:
+    """Set the session's display name, or clear it with an explicit null.
+    Purely cosmetic — nothing downstream keys off the label."""
+    return SessionRead.from_model(await pipe.sessions.set_label(session.id, body.label))
 
 
 @router.post("/{session_id}/end", summary="End a recording session")
@@ -166,15 +181,35 @@ async def get_session_timeline(
     )
     labels = await pipe.speakers.labels_for_session(session.id)
     speaker_map = {
-        label.speaker: (label.speaker_id, label.name)
-        for label in labels
-        if label.speaker_id is not None
+        label.speaker: label for label in labels if label.speaker_id is not None
     }
     events = timeline_events.assemble(
         session, rows, from_ms=from_ms, to_ms=to_ms, speakers=speaker_map
     )
     window = events[paging.offset : paging.offset + paging.probe_limit]
     return Page.build(window, paging, lambda event: event)
+
+
+@router.post("/{session_id}/transcripts/{artifact_id}", summary="Edit a transcript's text")
+async def edit_transcript(
+    session: OwnedSession, artifact_id: UUID, pipe: Pipe, body: TranscriptEditRequest
+) -> ArtifactRead:
+    """Rewrite one utterance's text. The edit lands in the artifact's
+    metadata (text, chars, and an ``edited`` provenance flag), so the
+    timeline and full-text search serve it immediately — both read
+    ``metadata->>'text'`` live."""
+    artifact = await pipe.artifacts.get(artifact_id)
+    if (
+        artifact is None
+        or artifact.session_id != session.id
+        or (artifact.pipeline, artifact.kind) != ("transcribe", "transcript")
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="transcript not found")
+    updated = await pipe.artifacts.merge_metadata(
+        artifact_id, {"text": body.text, "chars": len(body.text), "edited": True}
+    )
+    assert updated is not None  # just fetched it, same transaction
+    return ArtifactRead.from_model(updated)
 
 
 @router.get("/{session_id}/speakers", summary="Who spoke in this session")

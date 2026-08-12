@@ -24,6 +24,9 @@ export default function SessionView({
   onOpenSession: (id: string, seekMs?: number) => void
 }) {
   const [session, setSession] = useState<SessionRead | null>(null)
+  // Rename draft; null while the title is just being displayed.
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
   // The audio element as state (not a ref): the strip and playhead hooks
   // need to re-subscribe when it mounts.
   const [audioEl, setAudioEl] = useState<HTMLAudioElement | null>(null)
@@ -100,6 +103,26 @@ export default function SessionView({
 
   const onSpeakersChanged = useCallback(() => setRefreshKey((k) => k + 1), [])
 
+  // An empty draft clears the label, so the title falls back to the device
+  // (or the short id) exactly as it did before the session was ever named.
+  const saveLabel = async () => {
+    if (draft === null) return
+    const label = draft.trim() || null
+    if (label === (session?.label ?? null)) {
+      setDraft(null)
+      return
+    }
+    setSaving(true)
+    const { data } = await api.POST("/v1/sessions/{session_id}/label", {
+      params: { path: { session_id: sessionId } },
+      body: { label },
+    })
+    setSaving(false)
+    if (!data) return // keep the draft open so the text isn't lost
+    setSession(data)
+    setDraft(null)
+  }
+
   if (!session) return <div className="loading">Loading session…</div>
 
   return (
@@ -109,10 +132,50 @@ export default function SessionView({
           ← back
         </button>
         <div>
-          <h2 className="session-title">
-            {session.label ?? session.device ?? shortId(session.id)}
-            {session.is_open && <span className="badge live">live</span>}
-          </h2>
+          {draft === null ? (
+            <h2 className="session-title">
+              {session.label ?? session.device ?? shortId(session.id)}
+              {session.is_open && <span className="badge live">live</span>}
+              <button
+                className="btn ghost slim"
+                title="rename this session"
+                onClick={() => setDraft(session.label ?? "")}
+              >
+                rename
+              </button>
+            </h2>
+          ) : (
+            <form
+              className="session-rename"
+              onSubmit={(event) => {
+                event.preventDefault()
+                void saveLabel()
+              }}
+            >
+              <input
+                className="input slim"
+                placeholder="name this session…"
+                value={draft}
+                autoFocus
+                maxLength={200}
+                onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setDraft(null)
+                }}
+              />
+              <button className="btn primary slim" disabled={saving}>
+                {saving ? "saving…" : "save"}
+              </button>
+              <button
+                type="button"
+                className="btn ghost slim"
+                disabled={saving}
+                onClick={() => setDraft(null)}
+              >
+                cancel
+              </button>
+            </form>
+          )}
           <div className="session-sub">
             {fmtDate(session.started_at)} · {fmtDuration(session.started_at, session.ended_at)}
             {session.device && ` · ${session.device}`}

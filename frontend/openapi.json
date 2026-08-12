@@ -472,6 +472,87 @@
         }
       }
     },
+    "/v1/sessions/{session_id}/label": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Rename (or unname) a session",
+        "description": "Set the session's display name, or clear it with an explicit null.\nPurely cosmetic \u2014 nothing downstream keys off the label.",
+        "operationId": "label_session_v1_sessions__session_id__label_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionLabelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/end": {
       "post": {
         "tags": [
@@ -971,6 +1052,97 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Page_TimelineEvent_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/transcripts/{artifact_id}": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Edit a transcript's text",
+        "description": "Rewrite one utterance's text. The edit lands in the artifact's\nmetadata (text, chars, and an ``edited`` provenance flag), so the\ntimeline and full-text search serve it immediately \u2014 both read\n``metadata->>'text'`` live.",
+        "operationId": "edit_transcript_v1_sessions__session_id__transcripts__artifact_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranscriptEditRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactRead"
                 }
               }
             }
@@ -3012,6 +3184,19 @@
             "title": "Artifact Id",
             "description": "The pipeline artifact this event derives from."
           },
+          "voiceprint_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceprint Id",
+            "description": "The voice-print (embedding artifact) behind this event's speaker, when one resolved \u2014 the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice."
+          },
           "type": {
             "type": "string",
             "const": "audio-tag",
@@ -3763,6 +3948,29 @@
         "title": "SessionEndEvent",
         "description": "Closes the timeline of an ended session; an open session has none.\n\n``at_ms`` here is the wall-clock duration, which can drift from the\naudio-position time other events use when capture had gaps."
       },
+      "SessionLabelRequest": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label",
+            "description": "The name to set, or null to clear it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "SessionLabelRequest",
+        "description": "Body of ``POST /sessions/{id}/label``. ``label`` is required so an\nempty body is a 422, never a silent clear; send an explicit null to\nremove the name and fall back to the device/id display."
+      },
       "SessionRead": {
         "properties": {
           "id": {
@@ -4342,6 +4550,19 @@
             "title": "Artifact Id",
             "description": "The pipeline artifact this event derives from."
           },
+          "voiceprint_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceprint Id",
+            "description": "The voice-print (embedding artifact) behind this event's speaker, when one resolved \u2014 the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice."
+          },
           "type": {
             "type": "string",
             "const": "speech-end",
@@ -4381,6 +4602,19 @@
             "format": "uuid",
             "title": "Artifact Id",
             "description": "The pipeline artifact this event derives from."
+          },
+          "voiceprint_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceprint Id",
+            "description": "The voice-print (embedding artifact) behind this event's speaker, when one resolved \u2014 the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice."
           },
           "type": {
             "type": "string",
@@ -4581,6 +4815,22 @@
         "title": "TokenIssued",
         "description": "The plaintext exists exactly once, here; the server stores only a hash."
       },
+      "TranscriptEditRequest": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Text",
+            "description": "The corrected transcript text."
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "TranscriptEditRequest",
+        "description": "Body of ``POST /sessions/{id}/transcripts/{artifact_id}``. Empty text\nis rejected \u2014 correcting an utterance never silently erases it."
+      },
       "TranscriptEvent": {
         "properties": {
           "at_ms": {
@@ -4593,6 +4843,19 @@
             "format": "uuid",
             "title": "Artifact Id",
             "description": "The pipeline artifact this event derives from."
+          },
+          "voiceprint_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceprint Id",
+            "description": "The voice-print (embedding artifact) behind this event's speaker, when one resolved \u2014 the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice."
           },
           "type": {
             "type": "string",

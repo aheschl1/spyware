@@ -114,9 +114,9 @@ the project is not installed onto `PATH` — use `python -m cli.main`.
 
 ## Web frontend (`frontend/`)
 
-A React + TypeScript browser UI over the API: session browser, timeline
-(transcripts, speakers, sound tags), seekable audio playback, text→audio
-search, and speaker curation: labeling, merging split voices (distance-ranked
+A React + TypeScript browser UI over the API: session browser (with in-place
+session renaming), timeline (transcripts, speakers, sound tags), seekable audio
+playback, text→audio search, and speaker curation: labeling, merging split voices (distance-ranked
 candidates, same-name prompt), inspecting a cluster's voice-prints by ear,
 moving/ejecting wrong voices (pinned so rebuilds honor it), and tuning the
 clustering threshold + recomputing from a settings panel. Dev-mode only for now:

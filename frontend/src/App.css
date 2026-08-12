@@ -486,6 +486,31 @@ button.row:hover,
   margin-left: 0;
 }
 
+/* The rename affordance sits in the title line; keep it quiet until hovered
+   so it reads as a control, not part of the name. */
+.session-title .btn.ghost {
+  font-weight: 400;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.session-title .btn.ghost:hover {
+  color: var(--text);
+  opacity: 1;
+}
+
+.session-rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-rename .input {
+  font-size: 17px;
+  min-width: min(260px, 60vw);
+}
+
 .session-sub {
   color: var(--text-muted);
   font-size: 13px;
@@ -639,6 +664,33 @@ button.row:hover,
 
 .event-body {
   min-width: 0;
+  flex: 1;
+}
+
+/* Transcript correction: a pencil that surfaces on hover, an inline form. */
+
+.event-edit {
+  opacity: 0;
+  margin-left: 6px;
+  transition: opacity 120ms;
+}
+
+.event:hover .event-edit,
+.event:focus-within .event-edit {
+  opacity: 1;
+}
+
+.transcript-edit {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-top: 2px;
+}
+
+.transcript-edit textarea {
+  flex: 1;
+  font: inherit;
+  resize: vertical;
 }
 
 .speaker {
@@ -1087,6 +1139,12 @@ button.row:hover,
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+/* The "someone new…" candidate: an empty slot instead of a voice colour. */
+.speaker-dot.new {
+  background: none;
+  border: 1px dashed var(--text-muted);
 }
 
 /* Chips sit near the left edge of rows/headers; open the popover rightward. */

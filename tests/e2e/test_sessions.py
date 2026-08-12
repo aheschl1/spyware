@@ -76,6 +76,75 @@ async def test_ended_session_reports_closed(client: httpx.AsyncClient, account: 
     assert body["ended_at"] is not None
 
 
+async def test_label_renames_a_session(client: httpx.AsyncClient, account: Account) -> None:
+    created = await make_session(account, device="glasses-01", label="walk")
+
+    renamed = await client.post(
+        f"/v1/sessions/{created.id}/label",
+        headers=account.headers,
+        json={"label": "morning walk"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["label"] == "morning walk"
+
+    # The rename is what the session route serves from then on.
+    body = (await client.get(f"/v1/sessions/{created.id}", headers=account.headers)).json()
+    assert body["label"] == "morning walk"
+    assert body["device"] == "glasses-01"
+
+    # An explicit null clears it; nothing else about the session moves.
+    cleared = await client.post(
+        f"/v1/sessions/{created.id}/label", headers=account.headers, json={"label": None}
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["label"] is None
+    assert cleared.json()["device"] == "glasses-01"
+
+
+async def test_label_requires_an_explicit_value(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    """An empty body must not silently clear the name."""
+    created = await make_session(account, label="walk")
+
+    response = await client.post(
+        f"/v1/sessions/{created.id}/label", headers=account.headers, json={}
+    )
+    assert response.status_code == 422
+
+    body = (await client.get(f"/v1/sessions/{created.id}", headers=account.headers)).json()
+    assert body["label"] == "walk"
+
+
+async def test_ended_session_can_still_be_renamed(
+    client: httpx.AsyncClient, account: Account
+) -> None:
+    created = await make_session(account)
+    async with DatabasePipe() as pipe:
+        await pipe.sessions.end(created.id)
+
+    response = await client.post(
+        f"/v1/sessions/{created.id}/label", headers=account.headers, json={"label": "after"}
+    )
+    assert response.status_code == 200
+    assert response.json()["label"] == "after"
+    assert response.json()["is_open"] is False
+
+
+async def test_label_on_another_users_session_is_404(
+    client: httpx.AsyncClient, account: Account, other_account: Account
+) -> None:
+    theirs = await make_session(other_account, label="not yours")
+
+    response = await client.post(
+        f"/v1/sessions/{theirs.id}/label", headers=account.headers, json={"label": "mine now"}
+    )
+    assert response.status_code == 404
+
+    body = (await client.get(f"/v1/sessions/{theirs.id}", headers=other_account.headers)).json()
+    assert body["label"] == "not yours"
+
+
 async def test_unknown_session_is_404(client: httpx.AsyncClient, account: Account) -> None:
     response = await client.get(f"/v1/sessions/{uuid4()}", headers=account.headers)
     assert response.status_code == 404

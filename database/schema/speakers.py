@@ -91,6 +91,7 @@ class SessionSpeakerLabel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     speaker: str  # block-local label
+    artifact_id: UUID | None = None  # the voice-print (embedding artifact) behind it
     speaker_id: UUID | None = None  # NULL: not (yet) clustered
     name: str | None = None
     talk_ms: int | None = None
