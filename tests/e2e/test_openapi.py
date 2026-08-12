@@ -13,16 +13,29 @@ EXPECTED_METHODS = {
     "/v1/sessions/{session_id}/artifacts": {"get"},
     "/v1/sessions/{session_id}/audio": {"get"},
     "/v1/sessions/{session_id}/end": {"post"},
+    "/v1/sessions/{session_id}/playback": {"post"},
     "/v1/sessions/{session_id}/segments": {"get"},
     "/v1/sessions/{session_id}/speakers": {"get"},
     "/v1/sessions/{session_id}/timeline": {"get"},
     "/v1/segments": {"get"},
     "/v1/segments/{segment_id}": {"get"},
     "/v1/segments/{segment_id}/audio": {"get"},
+    "/v1/search/audio": {"get"},
+    "/v1/search/tags": {"get"},
+    "/v1/search/tags/labels": {"get"},
+    "/v1/search/transcripts": {"get"},
     "/v1/speakers": {"get"},
+    "/v1/speakers/cluster-params": {"get", "post"},
+    "/v1/speakers/cluster-params/reset": {"post"},
+    "/v1/speakers/recluster": {"post"},
     "/v1/speakers/transcripts": {"get"},
     "/v1/speakers/{speaker_id}": {"get"},
     "/v1/speakers/{speaker_id}/label": {"post"},
+    "/v1/speakers/{speaker_id}/members": {"get"},
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/reassign": {"post"},
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/unpin": {"post"},
+    "/v1/speakers/{speaker_id}/merge": {"post"},
+    "/v1/speakers/{speaker_id}/similar": {"get"},
     "/v1/speakers/{speaker_id}/transcripts": {"get"},
 }
 
@@ -66,6 +79,7 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "speech-start",
         "speech-end",
         "transcript",
+        "audio-tag",
     }
     # Transcripts never leak the storage layout; the full text is inline and
     # carries its diarized speaker (no truncation — transcripts are row-only).

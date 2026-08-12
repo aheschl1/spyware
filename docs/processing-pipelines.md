@@ -184,17 +184,29 @@ each tier discovers its own input):
    the whole session's diarization — the cost of gating ASR on the detector
    that actually hears every speaker.
 4. **`speaker-cluster`** (`processing/pipelines/speaker_cluster.py`) —
-   consumes each session's `diarize-map` and attaches that session's
-   embeddings to the user's global `speakers` clusters (pgvector
-   nearest-centroid within `cluster_assign_max_distance`, else a new
-   unlabeled cluster; merge pass collapses converged centroids, never two
-   differently-named ones). Assignments live in
+   discovered per `diarize-map`, but every run **re-clusters the user's whole
+   corpus** with constrained agglomerative clustering (average linkage,
+   cosine, one threshold: `cluster_distance`, per-user overridable via the
+   `cluster_params` table / `POST /v1/speakers/cluster-params`). Batch
+   re-clustering is order-independent and self-healing — no centroid drift,
+   no permanent splits. User curation persists as **pins** (`speaker_pins`:
+   "this voice-print IS this identity", created by merges and member moves):
+   pin-groups enter the agglomeration pre-merged, and clusters pinned to
+   different identities never merge. After each run, result clusters map
+   back to persistent `speakers` rows — pinned identity first, else majority
+   previous membership preferring named clusters (named identities keep
+   their id), else unnamed ids churn. Assignments live in
    `speaker_embeddings.speaker_id` — a resolve-at-read mapping, so
    re-clustering never rewrites transcripts; local labels stay provenance.
-   Clusters are user-labeled via `POST /v1/speakers/{id}/label`; named
-   clusters are identity anchors that survive republication and the
-   `cli speakers recluster` full rebuild (the drift correction). Embeddings
-   under `cluster_min_talk_ms` of speech are skipped as unreliable.
+   Embeddings under `cluster_min_talk_ms` of speech are skipped as
+   unreliable, unless pinned. The same batch runs on demand via
+   `POST /v1/speakers/recluster`, `cli speakers recluster` (one-off
+   `--distance`/`--min-talk-ms` flags) and the web UI's clustering-settings
+   panel; all three serialize per user on an advisory lock. Manual tools:
+   `POST /v1/speakers/{id}/merge` (pins both member sets to the survivor;
+   `GET /v1/speakers/{id}/similar` ranks candidates by centroid distance),
+   `GET /v1/speakers/{id}/members` (voice-prints farthest-first with
+   playable utterance spans), and per-member reassign/eject/unpin routes.
 
 The transcription service is behind a seam (`processing/transcriber.py`):
 `PROCESSING_TRANSCRIBER_BASE_URL` speaking the standard transcriptions API
@@ -203,6 +215,46 @@ or speaches, or a hosted endpoint) or a Replicate cog wrapper (`cog`).
 Swapping models/backends is env-only. Canary-qwen is English-only and emits
 no word timestamps — timing granularity is the utterance; a forced-alignment
 tier can refine it later on the same artifact model.
+
+## The audio-tag tier
+
+`audio-tag` (`processing/pipelines/audio_tag.py`) runs beside the speech
+tiers, not downstream of them: it discovers ended sessions directly (same
+trigger as `speech-detect`) because non-speech sound — traffic, music, a
+keyboard — is exactly what it exists to hear.
+
+1. **audio-tag** — walks the session's audio in ~2-minute rendered spans
+   (overlapping by window-minus-hop so the service's 10 s / 5 s-hop window
+   grid stays continuous across seams) and sends each span to the
+   classification service behind `processing/classifier.py`
+   (`PROCESSING_CLASSIFIER_BASE_URL` — our `audio_tagger` container serving
+   CED-base for AudioSet's 527 sound classes plus LAION-CLAP for audio
+   embeddings; `POST {base}/audio/analyze`). Publishes per ~10 s window one
+   `audio-tag` artifact — top tag scores in metadata, ontology ancestors
+   suppressed (AudioSet is a DAG: a guitar clip scores Music, Musical
+   instrument *and* Guitar; the window keeps the most specific winner) — and
+   one `audio_embeddings` pgvector row keyed by that artifact. The
+   `audio-tag-map` written last carries the session-level tag list: per-class
+   MAX across windows (events are sparse; a mean buries them), gated on
+   holding `audio_tag_threshold` for `audio_tag_min_consecutive` windows in a
+   row. The ontology parent map is vendored data
+   (`processing/data/audioset_parents.json`, generated from
+   github.com/audioset/ontology).
+
+The embeddings are the retrieval half of question-answering over recordings:
+`GET /v1/search/audio?q=…` embeds the text through the same service's CLAP
+text encoder and ranks the caller's windows by cosine distance — consumers
+then feed the hit windows' transcripts and tags to an LLM. The vectors are
+never fed to a model directly.
+
+Search is a trio: contrastive audio (`/search/audio`, "when did I hear X"),
+tag filtering (`/search/tags`, calibrated class scores), and lexical
+transcript search (`/search/transcripts`, "when was X said" — Postgres FTS
+with a trigram fuzzy fallback; indexes in migration 0009, queries in
+`database/repos/transcripts.py`, no pipeline involvement). Semantic
+transcript search (sentence embeddings + a `transcript-embed` tier) is
+deliberately deferred pending a chunk-overlap design; it would arrive as a
+non-breaking `mode=` parameter.
 
 ## Callbacks and chaining
 

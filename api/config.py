@@ -39,6 +39,12 @@ class ApiSettings(BaseSettings):
     session_stale_seconds: float = 300.0
     session_sweep_interval_seconds: float = 60.0
 
+    # Text->audio search embeds its query via the classifier sidecar (the
+    # audio_tagger container, same default the worker uses). A text encode is
+    # fast; the timeout only covers a cold or contended GPU.
+    classifier_base_url: str = "http://127.0.0.1:8035/v1"
+    classifier_timeout_seconds: float = 30.0
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> ApiSettings:

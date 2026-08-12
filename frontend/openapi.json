@@ -1,0 +1,4879 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "audio-pipeline",
+    "summary": "Recording sessions and their audio segments. Audio is uploaded over the streaming websocket described in docs/streaming-protocol.md.",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/stream-schema.json": {
+      "get": {
+        "tags": [
+          "stream"
+        ],
+        "summary": "Frame schema for the streaming websocket",
+        "description": "JSON Schema for the websocket frames (docs/streaming-protocol.md).\n\nThe websocket itself cannot appear in OpenAPI; clients generate their\nframe types from this document instead.",
+        "operationId": "stream_schema_json_stream_schema_json_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Stream Schema Json Stream Schema Json Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Liveness",
+        "description": "The process is up. Takes no dependencies and touches no store.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readiness",
+        "description": "Both backing stores answer; 503 if either does not.",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchange email + password for an API token",
+        "description": "Verify the credentials and mint a token (equivalent to `tokens issue`).\n\nUnknown email and wrong password are indistinguishable in both response\nand timing, so account existence does not leak.",
+        "operationId": "login_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenIssued"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "tags": [
+          "me"
+        ],
+        "summary": "Who this token belongs to",
+        "description": "Identity plus stored-audio totals.",
+        "operationId": "read_me_v1_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Start a recording session",
+        "description": "Create an open session, then attach to it over the streaming websocket.",
+        "operationId": "create_session_v1_sessions_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List your recording sessions",
+        "description": "Newest first, scoped to the caller.",
+        "operationId": "list_sessions_v1_sessions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "open_only",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Only sessions that have not ended.",
+              "default": false,
+              "title": "Open Only"
+            },
+            "description": "Only sessions that have not ended."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SessionRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Fetch one recording session",
+        "operationId": "get_session_v1_sessions__session_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/end": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "End a recording session",
+        "description": "Idempotent in effect; re-ending only moves the end timestamp.",
+        "operationId": "end_session_v1_sessions__session_id__end_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/playback": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Mint a short-lived audio playback token",
+        "description": "A token for the audio route's ``?token=`` parameter.\n\nMedia elements (``<audio src>``) cannot send an Authorization header, so\nthe session-audio route also accepts a token in the URL. This mints one\nwhose lifetime is minutes; the player re-mints when it expires. It is a\nreal API token, just time-boxed \u2014 expired ``playback`` rows are purged\nopportunistically on each mint.",
+        "operationId": "create_playback_token_v1_sessions__session_id__playback_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackTokenRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/segments": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List a session's audio segments",
+        "description": "In capture order (by `sequence`).",
+        "operationId": "list_session_segments_v1_sessions__session_id__segments_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SegmentRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/artifacts": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "List a session's pipeline artifacts",
+        "description": "What the processing tiers attached to this session, in timeline order.\n\nWhole-session artifacts sort first; a `from_ms`/`to_ms` window restricts\nto span artifacts overlapping it.",
+        "operationId": "list_session_artifacts_v1_sessions__session_id__artifacts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "pipeline",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only artifacts of this pipeline.",
+              "title": "Pipeline"
+            },
+            "description": "Only artifacts of this pipeline."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only artifacts of this kind.",
+              "title": "Kind"
+            },
+            "description": "Only artifacts of this kind."
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only span artifacts overlapping at/after this time.",
+              "title": "From Ms"
+            },
+            "description": "Only span artifacts overlapping at/after this time."
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only span artifacts overlapping before this time.",
+              "title": "To Ms"
+            },
+            "description": "Only span artifacts overlapping before this time."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ArtifactRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/timeline": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "A session's ordered event timeline",
+        "description": "What happened when: session frames, speech starts/ends, transcripts.\n\nEvents carry a ``type`` discriminator; clients must ignore types they do\nnot recognise \u2014 future processing tiers add new ones. `limit`/`offset`\npage over events (one artifact can yield several, so offsets here do not\nline up with the artifacts route). A `from_ms`/`to_ms` window keeps only\nevents positioned inside it, so adjacent windows partition the stream \u2014\na span straddling a boundary contributes its `speech-end` alone.\n\nAn unprocessed (or speechless) session serves just its session frames;\nprocessing status stays introspectable via `.../artifacts?kind=speech-map`.",
+        "operationId": "get_session_timeline_v1_sessions__session_id__timeline_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events at/after this time.",
+              "title": "From Ms"
+            },
+            "description": "Only events at/after this time."
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only events before this time.",
+              "title": "To Ms"
+            },
+            "description": "Only events before this time."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_TimelineEvent_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/speakers": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Who spoke in this session",
+        "description": "One row per voice: clustered voices grouped under their global\nspeaker (labeled or not), with each not-yet-clustered block-local label\non its own row \u2014 nothing the diarizer heard is hidden.",
+        "operationId": "list_session_speakers_v1_sessions__session_id__speakers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSpeakerRead"
+                  },
+                  "title": "Response List Session Speakers V1 Sessions  Session Id  Speakers Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions/{session_id}/audio": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Stream a session's audio as one WAV",
+        "description": "Every segment's PCM behind a single WAV header, in sequence order.\n\nThe stitched size is known from the rows alone, so `Range` (seeking) and\nconditional requests work exactly as on the per-segment route. An open\nsession serves the audio ingested so far; re-request for more.\n\nThe representation (header, plan, ETag) is cached per session and reused\nuntil its segments change, so a conditional check or a range seek costs one\ncheap fingerprint query rather than a full re-read. No pooled database\nconnection is held while the body streams from the blob store.",
+        "operationId": "get_session_audio_v1_sessions__session_id__audio_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Bearer token as a query parameter, for media elements that cannot send an Authorization header. Mint a short-lived one via POST /v1/sessions/{session_id}/playback. Ignored when the header is present.",
+              "title": "Token"
+            },
+            "description": "Bearer token as a query parameter, for media elements that cannot send an Authorization header. Mint a short-lived one via POST /v1/sessions/{session_id}/playback. Ignored when the header is present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole session, stitched.",
+            "content": {
+              "audio/wav": {}
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "The session holds no audio."
+          },
+          "206": {
+            "content": {
+              "audio/wav": {}
+            },
+            "description": "The requested byte range."
+          },
+          "304": {
+            "description": "The client's cached copy is still current."
+          },
+          "409": {
+            "description": "The session's segments do not form one continuous WAV.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "The requested range lies outside the audio."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/segments": {
+      "get": {
+        "tags": [
+          "segments"
+        ],
+        "summary": "List your audio segments",
+        "description": "Across every session the caller owns, most recently ingested first.",
+        "operationId": "list_segments_v1_segments_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SegmentRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/segments/{segment_id}": {
+      "get": {
+        "tags": [
+          "segments"
+        ],
+        "summary": "Fetch one audio segment's metadata",
+        "operationId": "get_segment_v1_segments__segment_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "segment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "An audio segment belonging to you.",
+              "title": "Segment Id"
+            },
+            "description": "An audio segment belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/segments/{segment_id}/audio": {
+      "get": {
+        "tags": [
+          "segments"
+        ],
+        "summary": "Download a segment's audio",
+        "description": "Stream the stored audio, honouring `Range` and conditional requests.\n\nA `Range` is passed through to the object store, so only that slice is\ntransferred. Segments are immutable, so `If-None-Match` answers 304 without\ntouching the store.",
+        "operationId": "get_segment_audio_v1_segments__segment_id__audio_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "segment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "An audio segment belonging to you.",
+              "title": "Segment Id"
+            },
+            "description": "An audio segment belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The whole audio object.",
+            "content": {
+              "audio/*": {}
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "206": {
+            "content": {
+              "audio/*": {}
+            },
+            "description": "The requested byte range."
+          },
+          "304": {
+            "description": "The client's cached copy is still current."
+          },
+          "416": {
+            "description": "The requested range lies outside the object."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "List your speaker clusters",
+        "description": "Labeled and unlabeled clusters alike \u2014 an empty cluster stays listed:\nit anchors a named identity across diarize re-runs.",
+        "operationId": "list_speakers_v1_speakers_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only clusters with exactly this label.",
+              "title": "Name"
+            },
+            "description": "Only clusters with exactly this label."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SpeakerRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/transcripts": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Everything said by one name",
+        "description": "Transcripts across every session and every cluster carrying this\nlabel, newest session first, in timeline order within a session.",
+        "operationId": "list_transcripts_by_name_v1_speakers_transcripts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "The label to fetch; unions all clusters sharing it.",
+              "title": "Name"
+            },
+            "description": "The label to fetch; unions all clusters sharing it."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SpeakerTranscriptRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/cluster-params": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Your clustering knobs",
+        "operationId": "get_cluster_params_v1_speakers_cluster_params_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterParamsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Override clustering knobs",
+        "description": "Persist per-field overrides (null = keep inheriting the default).\nThey apply to every future rebuild \u2014 the worker's per-session runs, the\nCLI, and the recluster route alike.",
+        "operationId": "set_cluster_params_v1_speakers_cluster_params_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClusterParamsOverrides"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterParamsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/speakers/cluster-params/reset": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Drop all overrides",
+        "operationId": "reset_cluster_params_v1_speakers_cluster_params_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterParamsRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/speakers/recluster": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Rebuild your clusters now",
+        "description": "The same batch every session-end runs, on demand \u2014 named identities\nand pinned voice-prints survive; unnamed cluster ids churn.",
+        "operationId": "recluster_v1_speakers_recluster_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReclusterResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/speakers/{speaker_id}": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Fetch one speaker cluster",
+        "operationId": "get_speaker_v1_speakers__speaker_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/label": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Label (or unlabel) a speaker",
+        "description": "Set the cluster's name, or clear it with an explicit null. The name\nsurvives re-clustering: a labeled cluster is an identity anchor.",
+        "operationId": "label_speaker_v1_speakers__speaker_id__label_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerLabelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/similar": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Merge candidates, closest first",
+        "description": "Your other clusters in the same embedding model ranked by centroid\ndistance \u2014 the shortlist for healing a split voice, with the numbers\nvisible so a suspiciously far merge looks suspicious.",
+        "operationId": "list_similar_speakers_v1_speakers__speaker_id__similar_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarSpeakersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/merge": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Merge this cluster into another",
+        "description": "Fold the path speaker's voice-prints into the target, then delete the\npath speaker; the target's centroid becomes the mean over the combined\nmembers. A label is never lost \u2014 an unnamed survivor inherits the\nmerged-away cluster's name. Same-model only: pgvector's distance and\n``avg()`` error out across dimensions.",
+        "operationId": "merge_speaker_v1_speakers__speaker_id__merge_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerMergeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/members": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Inspect a cluster's voice-prints",
+        "description": "Farthest-from-centroid first, so likely wrong voices surface on top;\neach row carries a playable utterance span when diarize produced one.",
+        "operationId": "list_speaker_members_v1_speakers__speaker_id__members_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SpeakerMemberRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/reassign": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Move a voice-print to another identity",
+        "description": "Pin + move in one step: the print lands in the target cluster and a\npin keeps it there through every rebuild. A null target ejects it into a\nfresh cluster. An emptied unnamed source dissolves.",
+        "operationId": "reassign_member_v1_speakers__speaker_id__members__artifact_id__reassign_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpeakerReassignRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerReassignResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/members/{artifact_id}/unpin": {
+      "post": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Release a voice-print's pin",
+        "description": "The assignment stands until the next rebuild decides freely.",
+        "operationId": "unpin_member_v1_speakers__speaker_id__members__artifact_id__unpin_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Artifact Id"
+            }
+          },
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerUnpinResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/speakers/{speaker_id}/transcripts": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Everything one cluster said",
+        "description": "Newest session first, timeline order within a session.",
+        "operationId": "list_speaker_transcripts_v1_speakers__speaker_id__transcripts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "speaker_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A speaker cluster belonging to you.",
+              "title": "Speaker Id"
+            },
+            "description": "A speaker cluster belonging to you."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SpeakerTranscriptRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search/audio": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Find audio windows by describing their sound",
+        "description": "Ranked ~10s windows from your sessions whose audio best matches the\ndescription, nearest first. Distances are only comparable within one\nquery; there is no absolute 'good match' cutoff \u2014 treat the ranking as\nthe signal and let downstream consumers (or the tag scores on each hit)\ndecide relevance.",
+        "operationId": "search_audio_v1_search_audio_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "A sound description, e.g. 'keyboard typing' or 'a dog barking'.",
+              "title": "Q"
+            },
+            "description": "A sound description, e.g. 'keyboard typing' or 'a dog barking'."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict matches to one session.",
+              "title": "Session Id"
+            },
+            "description": "Restrict matches to one session."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudioSearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search/tags/labels": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "List the sound classes heard in your audio",
+        "description": "Every class the tagger stored for your windows, most frequent first \u2014\nthe vocabulary the ``/search/tags`` filter can act on.",
+        "operationId": "list_tag_labels_v1_search_tags_labels_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagLabelsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/search/tags": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Find audio windows by sound-class score",
+        "description": "The deterministic search: exact classes with calibrated scores, best\nfirst. Unlike the contrastive route, scores ARE comparable across\nqueries and a threshold means the same thing everywhere.",
+        "operationId": "search_tags_v1_search_tags_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "label",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Class to match, case-insensitive substring \u2014 'speech' finds 'Male speech, man speaking'.",
+              "title": "Label"
+            },
+            "description": "Class to match, case-insensitive substring \u2014 'speech' finds 'Male speech, man speaking'."
+          },
+          {
+            "name": "min_score",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "description": "Keep windows where the class scored at least this.",
+              "default": 0.3,
+              "title": "Min Score"
+            },
+            "description": "Keep windows where the class scored at least this."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict matches to one session.",
+              "title": "Session Id"
+            },
+            "description": "Restrict matches to one session."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagSearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/search/transcripts": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Find moments by what was said",
+        "description": "Lexical search over the transcript utterances, best rank first.\n\nStrict full-text first (stemmed, so 'discussing' finds 'discussed');\nwhen that matches nothing, trigram close-spelling matches take over \u2014\nmisheard ASR words and typos still land \u2014 flagged ``fuzzy`` so the UI\ncan say so. Scores are comparable within one response only.",
+        "operationId": "search_transcripts_v1_search_transcripts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and \"quoted phrases\" must appear adjacent.",
+              "title": "Q"
+            },
+            "description": "Words to find. Google-ish syntax: words AND together, `or`, `-exclude`, and \"quoted phrases\" must appear adjacent."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict matches to one session.",
+              "title": "Session Id"
+            },
+            "description": "Restrict matches to one session."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptSearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ArtifactRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "pipeline": {
+            "type": "string",
+            "title": "Pipeline"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms",
+            "description": "Span start on the session timeline, ms."
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms",
+            "description": "Span end (exclusive) on the session timeline, ms."
+          },
+          "has_blob": {
+            "type": "boolean",
+            "title": "Has Blob",
+            "description": "Whether a stored payload backs this artifact."
+          },
+          "links": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Links"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "pipeline",
+          "kind",
+          "start_ms",
+          "end_ms",
+          "has_blob",
+          "links",
+          "metadata",
+          "created_at"
+        ],
+        "title": "ArtifactRead",
+        "description": "A pipeline output attached to a session, as served over HTTP.\n\n``start_ms``/``end_ms`` place it on the session timeline; both null means\nthe whole session. Carries no ``bucket``/``object_key`` \u2014 large payloads\nlive in the blob store and are surfaced through pipeline-specific routes\nor ``metadata``."
+      },
+      "AudioSearchRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The window's ``audio-tag`` artifact."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms",
+            "description": "Start of the matching window, ms."
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms",
+            "description": "End (exclusive) of the matching window, ms."
+          },
+          "distance": {
+            "type": "number",
+            "title": "Distance",
+            "description": "Cosine distance between the query and the window's audio embedding (0 = identical direction; lower is closer)."
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/AudioTagLabel"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "The window's tag scores, for orientation alongside the match."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "distance",
+          "labels"
+        ],
+        "title": "AudioSearchRead",
+        "description": "One audio window matching the query, closest first."
+      },
+      "AudioSearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The embedding model that encoded the query."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AudioSearchRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "model",
+          "items"
+        ],
+        "title": "AudioSearchResponse",
+        "description": "The ranked matches plus the query's embedding model, for provenance."
+      },
+      "AudioTagEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The pipeline artifact this event derives from."
+          },
+          "type": {
+            "type": "string",
+            "const": "audio-tag",
+            "title": "Type",
+            "default": "audio-tag"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms",
+            "description": "Start of the classified window, ms."
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms",
+            "description": "End (exclusive) of the classified window, ms."
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/AudioTagLabel"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "Scored classes, best first, ontology ancestors suppressed."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The tagging model that produced them."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "artifact_id",
+          "start_ms",
+          "end_ms",
+          "labels"
+        ],
+        "title": "AudioTagEvent",
+        "description": "Sound-event classes heard over ``[start_ms, end_ms)``; positioned at\nthe start. One event per classified window (~10s); a window whose every\nclass scored below the floor carries an empty list."
+      },
+      "AudioTagLabel": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "AudioSet class name, e.g. ``Music`` or ``Typing``."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "The tagger's sigmoid score for the class."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "score"
+        ],
+        "title": "AudioTagLabel",
+        "description": "One scored sound-event class on a window."
+      },
+      "ClusterParamsOverrides": {
+        "properties": {
+          "cluster_distance": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cluster Distance",
+            "description": "Override, or null to inherit the default."
+          },
+          "min_talk_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Talk Ms",
+            "description": "Override, or null to inherit the default."
+          }
+        },
+        "type": "object",
+        "required": [
+          "cluster_distance",
+          "min_talk_ms"
+        ],
+        "title": "ClusterParamsOverrides",
+        "description": "Per-field overrides; null = inherit the server default for that field.\n\nDoubles as the ``POST /speakers/cluster-params`` body \u2014 every key is\nrequired so a partial body is a 422, never a silent clear."
+      },
+      "ClusterParamsRead": {
+        "properties": {
+          "effective": {
+            "$ref": "#/components/schemas/ClusterParamsValues"
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/ClusterParamsOverrides"
+          },
+          "defaults": {
+            "$ref": "#/components/schemas/ClusterParamsValues"
+          }
+        },
+        "type": "object",
+        "required": [
+          "effective",
+          "overrides",
+          "defaults"
+        ],
+        "title": "ClusterParamsRead",
+        "description": "The user's clustering configuration: what applies, what they pinned,\nand what the server would use on its own."
+      },
+      "ClusterParamsValues": {
+        "properties": {
+          "cluster_distance": {
+            "type": "number",
+            "title": "Cluster Distance",
+            "description": "Agglomeration stops at this cosine distance."
+          },
+          "min_talk_ms": {
+            "type": "integer",
+            "title": "Min Talk Ms",
+            "description": "Voice-prints from less speech than this are not clustered."
+          }
+        },
+        "type": "object",
+        "required": [
+          "cluster_distance",
+          "min_talk_ms"
+        ],
+        "title": "ClusterParamsValues",
+        "description": "A complete, resolved set of clustering knobs."
+      },
+      "ErrorResponse": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "description": "The body of every non-2xx response."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthRead"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "title": "Password",
+            "writeOnly": true
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Label for the issued token, e.g. the device or app name.",
+            "default": "login"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "MeRead": {
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/UserRead"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user",
+          "usage"
+        ],
+        "title": "MeRead",
+        "description": "`GET /v1/me`: who the token belongs to, and what they have stored."
+      },
+      "Page_ArtifactRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[ArtifactRead]"
+      },
+      "Page_SegmentRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[SegmentRead]"
+      },
+      "Page_SessionRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[SessionRead]"
+      },
+      "Page_SpeakerMemberRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerMemberRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[SpeakerMemberRead]"
+      },
+      "Page_SpeakerRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[SpeakerRead]"
+      },
+      "Page_SpeakerTranscriptRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakerTranscriptRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[SpeakerTranscriptRead]"
+      },
+      "Page_TimelineEvent_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TimelineEvent"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[TimelineEvent]"
+      },
+      "PlaybackTokenRead": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "Short-lived token for the audio route's ?token= parameter."
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At",
+            "description": "When the token stops working; mint a new one after."
+          }
+        },
+        "type": "object",
+        "required": [
+          "token",
+          "expires_at"
+        ],
+        "title": "PlaybackTokenRead",
+        "description": "A minutes-lived token for media-element audio URLs (``?token=``)."
+      },
+      "ReadinessRead": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "database": {
+            "type": "boolean",
+            "title": "Database"
+          },
+          "storage": {
+            "type": "boolean",
+            "title": "Storage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "database",
+          "storage"
+        ],
+        "title": "ReadinessRead"
+      },
+      "ReclusterResponse": {
+        "properties": {
+          "clusters": {
+            "type": "integer",
+            "title": "Clusters",
+            "description": "Resulting cluster count."
+          },
+          "assigned": {
+            "type": "integer",
+            "title": "Assigned",
+            "description": "Voice-prints placed in a cluster."
+          },
+          "pinned": {
+            "type": "integer",
+            "title": "Pinned",
+            "description": "Voice-prints held by a user pin."
+          },
+          "skipped_short": {
+            "type": "integer",
+            "title": "Skipped Short",
+            "description": "Voice-prints under the talk gate."
+          }
+        },
+        "type": "object",
+        "required": [
+          "clusters",
+          "assigned",
+          "pinned",
+          "skipped_short"
+        ],
+        "title": "ReclusterResponse",
+        "description": "Counts from one batch rebuild."
+      },
+      "SegmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "sequence": {
+            "type": "integer",
+            "title": "Sequence"
+          },
+          "ingested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ingested At"
+          },
+          "captured_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At"
+          },
+          "offset_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Offset Ms"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "byte_size": {
+            "type": "integer",
+            "title": "Byte Size"
+          },
+          "content_type": {
+            "type": "string",
+            "title": "Content Type"
+          },
+          "checksum_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum Sha256",
+            "description": "Hex-encoded SHA-256 of the audio."
+          },
+          "codec": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Codec"
+          },
+          "sample_rate_hz": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rate Hz"
+          },
+          "channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channels"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "sequence",
+          "ingested_at",
+          "captured_at",
+          "offset_ms",
+          "duration_ms",
+          "byte_size",
+          "content_type",
+          "checksum_sha256",
+          "codec",
+          "sample_rate_hz",
+          "channels",
+          "metadata"
+        ],
+        "title": "SegmentRead",
+        "description": "An audio segment's metadata as served over HTTP.\n\nCarries no ``bucket`` or ``object_key``; audio is fetched from\n``GET /v1/segments/{id}/audio``."
+      },
+      "SessionCreateRequest": {
+        "properties": {
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "Defaults to the moment of creation."
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "title": "SessionCreateRequest",
+        "description": "Body for starting a session; the owner comes from the bearer token."
+      },
+      "SessionEndEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "type": {
+            "type": "string",
+            "const": "session-end",
+            "title": "Type",
+            "default": "session-end"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At",
+            "description": "Wall-clock end of the session."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "ended_at"
+        ],
+        "title": "SessionEndEvent",
+        "description": "Closes the timeline of an ended session; an open session has none.\n\n``at_ms`` here is the wall-clock duration, which can drift from the\naudio-position time other events use when capture had gaps."
+      },
+      "SessionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "is_open": {
+            "type": "boolean",
+            "title": "Is Open",
+            "description": "True while the session has no end time."
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metadata"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "device",
+          "label",
+          "started_at",
+          "ended_at",
+          "is_open",
+          "metadata",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SessionRead",
+        "description": "A recording session as served over HTTP.\n\nCarries no ``user_id``; every session a caller can see is their own."
+      },
+      "SessionSpeakerRead": {
+        "properties": {
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id",
+            "description": "Global cluster id; null when not (yet) clustered."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The cluster's label, if any."
+          },
+          "local_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Local Labels",
+            "description": "Block-local diarization labels resolved to this voice."
+          },
+          "talk_ms": {
+            "type": "integer",
+            "title": "Talk Ms",
+            "description": "Total speech attributed to this voice, ms."
+          }
+        },
+        "type": "object",
+        "required": [
+          "local_labels",
+          "talk_ms"
+        ],
+        "title": "SessionSpeakerRead",
+        "description": "One voice heard in a session: a cluster (possibly unlabeled), or a\nnot-yet-clustered local label (``speaker_id`` null) \u2014 nothing is hidden."
+      },
+      "SessionStartEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "type": {
+            "type": "string",
+            "const": "session-start",
+            "title": "Type",
+            "default": "session-start"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At",
+            "description": "Device-reported wall-clock start; the absolute time behind at_ms 0."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "started_at"
+        ],
+        "title": "SessionStartEvent",
+        "description": "Opens every timeline at ``at_ms`` 0."
+      },
+      "SimilarSpeakerRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "User-given label; null = unlabeled."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The embedding model this cluster lives in."
+          },
+          "embeddings": {
+            "type": "integer",
+            "title": "Embeddings",
+            "description": "Voice-prints currently assigned to the cluster."
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions",
+            "description": "Distinct sessions the cluster was heard in."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "distance": {
+            "type": "number",
+            "title": "Distance",
+            "description": "Cosine distance between centroids; ~0.6 within one voice, ~0.9 between different voices."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model",
+          "embeddings",
+          "sessions",
+          "created_at",
+          "updated_at",
+          "distance"
+        ],
+        "title": "SimilarSpeakerRead",
+        "description": "A merge candidate: another cluster in the same embedding model,\nwith its centroid's cosine distance from the reference speaker."
+      },
+      "SimilarSpeakersResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarSpeakerRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "SimilarSpeakersResponse",
+        "description": "Every other cluster of yours in the same model, closest first."
+      },
+      "SnippetSegment": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "match": {
+            "type": "boolean",
+            "title": "Match"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "match"
+        ],
+        "title": "SnippetSegment",
+        "description": "One run of snippet text; ``match`` marks the highlighted query terms."
+      },
+      "SpeakerLabelRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The label to set, or null to clear it."
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "SpeakerLabelRequest",
+        "description": "Body of ``POST /speakers/{id}/label``. ``name`` is required so an\nempty body is a 422, never a silent clear; send an explicit null to\nremove the label."
+      },
+      "SpeakerMemberRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At",
+            "description": "The session's start time."
+          },
+          "speaker": {
+            "type": "string",
+            "title": "Speaker",
+            "description": "Block-local diarization label (provenance)."
+          },
+          "talk_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talk Ms"
+          },
+          "distance": {
+            "type": "number",
+            "title": "Distance"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned",
+            "description": "Held to this identity by a user pin."
+          },
+          "clip_start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip Start Ms"
+          },
+          "clip_end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip End Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "started_at",
+          "speaker",
+          "distance",
+          "pinned"
+        ],
+        "title": "SpeakerMemberRead",
+        "description": "One voice-print of a cluster, for the inspection view. ``distance``\nis to the cluster centroid \u2014 outliers (likely wrong voices) rank high.\nThe clip is the voice's longest utterance in its block, playable\ndirectly; null when diarize produced no utterance for it."
+      },
+      "SpeakerMergeRequest": {
+        "properties": {
+          "into_speaker_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Into Speaker Id",
+            "description": "The cluster that survives the merge."
+          }
+        },
+        "type": "object",
+        "required": [
+          "into_speaker_id"
+        ],
+        "title": "SpeakerMergeRequest",
+        "description": "Body of ``POST /speakers/{id}/merge``: fold the path speaker into\nthis one. The survivor keeps its id (and its name, unless it has none\nand the merged-away cluster does)."
+      },
+      "SpeakerRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "User-given label; null = unlabeled."
+          },
+          "model": {
+            "type": "string",
+            "title": "Model",
+            "description": "The embedding model this cluster lives in."
+          },
+          "embeddings": {
+            "type": "integer",
+            "title": "Embeddings",
+            "description": "Voice-prints currently assigned to the cluster."
+          },
+          "sessions": {
+            "type": "integer",
+            "title": "Sessions",
+            "description": "Distinct sessions the cluster was heard in."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "model",
+          "embeddings",
+          "sessions",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpeakerRead",
+        "description": "One global speaker cluster. ``name`` is the user-given label \u2014 null\nmeans nobody has named it yet. Names are not unique: an imperfectly split\nvoice may briefly be two clusters sharing a name, and fetch-by-name\nunions them."
+      },
+      "SpeakerReassignRequest": {
+        "properties": {
+          "into_speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Into Speaker Id",
+            "description": "Target cluster, or null to eject into a new one."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Label for the new cluster when ejecting."
+          }
+        },
+        "type": "object",
+        "required": [
+          "into_speaker_id"
+        ],
+        "title": "SpeakerReassignRequest",
+        "description": "Body of ``POST /speakers/{id}/members/{artifact_id}/reassign``: move\none voice-print to another identity and pin it there. A null target\nejects it into a fresh cluster (named via ``name`` \u2014 recommended: an\nunnamed pair of clusters may legitimately re-merge on the next rebuild)."
+      },
+      "SpeakerReassignResponse": {
+        "properties": {
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakerRead"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "target": {
+            "$ref": "#/components/schemas/SpeakerRead"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "SpeakerReassignResponse",
+        "description": "Both sides after a move; ``source`` is null when the move emptied an\nunnamed cluster and it was dissolved."
+      },
+      "SpeakerTranscriptRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "speaker_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Speaker Id"
+          },
+          "speaker": {
+            "type": "string",
+            "title": "Speaker",
+            "description": "Block-local diarization label (provenance)."
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The transcription model."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "speaker_id",
+          "speaker",
+          "start_ms",
+          "end_ms",
+          "text"
+        ],
+        "title": "SpeakerTranscriptRead",
+        "description": "One utterance's transcript, resolved through a speaker cluster."
+      },
+      "SpeakerUnpinResponse": {
+        "properties": {
+          "unpinned": {
+            "type": "boolean",
+            "title": "Unpinned"
+          }
+        },
+        "type": "object",
+        "required": [
+          "unpinned"
+        ],
+        "title": "SpeakerUnpinResponse",
+        "description": "Acknowledges a pin removal; the assignment itself stands until the\nnext rebuild decides."
+      },
+      "SpeechEndEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The pipeline artifact this event derives from."
+          },
+          "type": {
+            "type": "string",
+            "const": "speech-end",
+            "title": "Type",
+            "default": "speech-end"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Mean VAD frame probability over the span."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "artifact_id"
+        ],
+        "title": "SpeechEndEvent",
+        "description": "The activity span that started last ends here."
+      },
+      "SpeechStartEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The pipeline artifact this event derives from."
+          },
+          "type": {
+            "type": "string",
+            "const": "speech-start",
+            "title": "Type",
+            "default": "speech-start"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "Mean VAD frame probability over the span."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "artifact_id"
+        ],
+        "title": "SpeechStartEvent",
+        "description": "Coarse audio activity begins here (high-recall VAD, not verified speech)."
+      },
+      "TagLabelRead": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "windows": {
+            "type": "integer",
+            "title": "Windows",
+            "description": "Windows where the class scored above the store floor."
+          },
+          "best": {
+            "type": "number",
+            "title": "Best",
+            "description": "The class's highest score anywhere."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "windows",
+          "best"
+        ],
+        "title": "TagLabelRead",
+        "description": "One class present in the caller's windows."
+      },
+      "TagLabelsResponse": {
+        "properties": {
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/TagLabelRead"
+            },
+            "type": "array",
+            "title": "Labels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "labels"
+        ],
+        "title": "TagLabelsResponse",
+        "description": "Every class heard in the caller's audio, most frequent first."
+      },
+      "TagSearchRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The window's ``audio-tag`` artifact."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The matched class (canonical AudioSet name)."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "The tagger's sigmoid score for that class."
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/AudioTagLabel"
+            },
+            "type": "array",
+            "title": "Labels",
+            "description": "The window's full tag list, for context."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "label",
+          "score",
+          "labels"
+        ],
+        "title": "TagSearchRead",
+        "description": "One window where the class scored at or above the floor."
+      },
+      "TagSearchResponse": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "The filter as given (matched as substring)."
+          },
+          "min_score": {
+            "type": "number",
+            "title": "Min Score"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TagSearchRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "min_score",
+          "items"
+        ],
+        "title": "TagSearchResponse",
+        "description": "Windows matching the class filter, best score first."
+      },
+      "TimelineEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/SessionStartEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SessionEndEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SpeechEndEvent"
+          },
+          {
+            "$ref": "#/components/schemas/SpeechStartEvent"
+          },
+          {
+            "$ref": "#/components/schemas/TranscriptEvent"
+          },
+          {
+            "$ref": "#/components/schemas/AudioTagEvent"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "audio-tag": "#/components/schemas/AudioTagEvent",
+            "session-end": "#/components/schemas/SessionEndEvent",
+            "session-start": "#/components/schemas/SessionStartEvent",
+            "speech-end": "#/components/schemas/SpeechEndEvent",
+            "speech-start": "#/components/schemas/SpeechStartEvent",
+            "transcript": "#/components/schemas/TranscriptEvent"
+          }
+        }
+      },
+      "TokenIssued": {
+        "properties": {
+          "token": {
+            "type": "string",
+            "title": "Token",
+            "description": "Bearer token for the Authorization header."
+          }
+        },
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "title": "TokenIssued",
+        "description": "The plaintext exists exactly once, here; the server stores only a hash."
+      },
+      "TranscriptEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The pipeline artifact this event derives from."
+          },
+          "type": {
+            "type": "string",
+            "const": "transcript",
+            "title": "Type",
+            "default": "transcript"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms",
+            "description": "Start of the transcribed utterance, ms."
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms",
+            "description": "End (exclusive) of the transcribed utterance, ms."
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Full transcript text of the utterance."
+          },
+          "chars": {
+            "type": "integer",
+            "title": "Chars",
+            "description": "Transcript length in characters."
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "The transcription model that produced it."
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker",
+            "description": "Diarized speaker of the utterance (block-namespaced, e.g. ``b109176:SPEAKER_00``); labels are stable within a block only."
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id",
+            "description": "Global speaker cluster the voice resolved to; null when not (yet) clustered."
+          },
+          "speaker_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Name",
+            "description": "The cluster's user-given label, if it has one."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "artifact_id",
+          "start_ms",
+          "end_ms",
+          "text",
+          "chars"
+        ],
+        "title": "TranscriptEvent",
+        "description": "What one speaker said over ``[start_ms, end_ms)``; positioned at the start."
+      },
+      "TranscriptSearchRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The utterance's ``transcript`` artifact."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker",
+            "description": "Diarized speaker label (block-namespaced)."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "Cover-density rank (strict) or trigram word-similarity (fuzzy); comparable within one response only."
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SnippetSegment"
+            },
+            "type": "array",
+            "title": "Segments",
+            "description": "The snippet, split into plain and matched runs."
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "score",
+          "segments"
+        ],
+        "title": "TranscriptSearchRead",
+        "description": "One utterance matching the transcript query."
+      },
+      "TranscriptSearchResponse": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "title": "Query"
+          },
+          "fuzzy": {
+            "type": "boolean",
+            "title": "Fuzzy",
+            "description": "True when strict full-text matching found nothing and these are trigram close-spelling matches instead."
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptSearchRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "query",
+          "fuzzy",
+          "items"
+        ],
+        "title": "TranscriptSearchResponse",
+        "description": "Matching utterances, best first."
+      },
+      "UsageRead": {
+        "properties": {
+          "segments": {
+            "type": "integer",
+            "title": "Segments"
+          },
+          "total_bytes": {
+            "type": "integer",
+            "title": "Total Bytes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "segments",
+          "total_bytes"
+        ],
+        "title": "UsageRead",
+        "description": "How much audio the caller has stored."
+      },
+      "UserRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "title": "Email"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "display_name",
+          "created_at"
+        ],
+        "title": "UserRead",
+        "description": "The caller's own account. Never exposes another user."
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "An API token from `tokens issue`.",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

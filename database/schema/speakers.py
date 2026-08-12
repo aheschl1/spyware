@@ -51,8 +51,9 @@ class SpeakerSummary(Speaker):
     sessions: int
 
 
-class ClusterCandidate(BaseModel):
-    """An unassigned embedding as the clustering routine consumes it."""
+class CorpusEmbedding(BaseModel):
+    """One voice-print as the batch clusterer consumes it: the vector plus
+    its previous assignment (identity continuity) and pin (constraint)."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -62,8 +63,26 @@ class ClusterCandidate(BaseModel):
     model: str
     embedding: tuple[float, ...]
     talk_ms: int | None = None  # None on pre-talk_ms rows: passes the gate
+    speaker_id: UUID | None = None  # previous assignment, if any
+    pinned_to: UUID | None = None  # user-asserted identity, if any
 
     _parse_embedding = field_validator("embedding", mode="before")(_parse_vector)
+
+
+class SpeakerMember(BaseModel):
+    """One voice-print of a cluster as the inspection view renders it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifact_id: UUID
+    session_id: UUID
+    started_at: datetime  # the session's start
+    speaker: str  # block-local label
+    talk_ms: int | None = None
+    distance: float  # to the cluster centroid
+    pinned: bool
+    clip_start_ms: int | None = None  # longest utterance of this voice
+    clip_end_ms: int | None = None
 
 
 class SessionSpeakerLabel(BaseModel):

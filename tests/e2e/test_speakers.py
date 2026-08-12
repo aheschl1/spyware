@@ -5,13 +5,15 @@ fetch-by-name unions everything one person said.
 The stub diarizer's embeddings are orthogonal per local speaker and identical
 across sessions/blocks, so SPEAKER_00 of every session lands in one cluster
 and SPEAKER_01 in another (cosine distance 0 within a voice, 1.0 across —
-clean for the 0.45 assign / 0.30 merge thresholds).
+clean for the 0.65 batch-clustering threshold, and far enough apart that
+only a *manual* merge or a loosened threshold can ever unite them).
 """
 
 import asyncio
 import subprocess
 import sys
 import time
+from uuid import uuid4
 
 import httpx
 
@@ -157,9 +159,16 @@ async def test_speakers_are_scoped_to_their_owner(
     for path in (
         f"/v1/speakers/{speaker_id}",
         f"/v1/speakers/{speaker_id}/transcripts",
+        f"/v1/speakers/{speaker_id}/similar",
     ):
         response = await client.get(path, headers=other.headers)
         assert response.status_code == 404, path
+    merge = await client.post(
+        f"/v1/speakers/{speaker_id}/merge",
+        headers=other.headers,
+        json={"into_speaker_id": speaker_id},
+    )
+    assert merge.status_code == 404  # foreign path speaker, before any guard
 
 
 async def test_recluster_rebuild_preserves_named_identity(
@@ -190,3 +199,90 @@ async def test_recluster_rebuild_preserves_named_identity(
     (anchored,) = [s for s in after if s["name"] == "Anchor"]
     assert anchored["id"] == target["id"]  # identity survived the rebuild
     assert anchored["embeddings"] == 1  # and reclaimed its member
+
+
+async def test_manual_merge_heals_a_split_voice(
+    worker: None, client: httpx.AsyncClient, clean_state
+) -> None:
+    """The stub clusters sit at distance 1.0 — far beyond auto-merge — so
+    uniting them exercises exactly the manual path: similar ranks the
+    candidate with its real distance, merge folds members and carries the
+    loser's name onto an unnamed survivor, and reads resolve to one voice."""
+    account = await make_account()
+    first = await _diarized_session(account)
+    second = await _diarized_session(account)
+
+    loser, survivor = await _speakers(client, account)
+    await client.post(
+        f"/v1/speakers/{loser['id']}/label",
+        headers=account.headers,
+        json={"name": "Mom"},
+    )
+
+    similar = await client.get(
+        f"/v1/speakers/{loser['id']}/similar", headers=account.headers
+    )
+    assert similar.status_code == 200
+    items = similar.json()["items"]
+    assert [item["id"] for item in items] == [survivor["id"]]
+    assert 0.9 < items[0]["distance"] < 1.1  # orthogonal stub voices
+
+    merged = await client.post(
+        f"/v1/speakers/{loser['id']}/merge",
+        headers=account.headers,
+        json={"into_speaker_id": survivor["id"]},
+    )
+    assert merged.status_code == 200
+    body = merged.json()
+    assert body["id"] == survivor["id"]
+    assert body["name"] == "Mom"  # unnamed survivor inherits the label
+    assert body["embeddings"] == 4 and body["sessions"] == 2
+
+    remaining = await _speakers(client, account)
+    assert [speaker["id"] for speaker in remaining] == [survivor["id"]]
+
+    transcripts = (
+        await client.get(
+            f"/v1/speakers/{survivor['id']}/transcripts", headers=account.headers
+        )
+    ).json()["items"]
+    assert len(transcripts) == 4  # both voices' utterances, both sessions
+    assert {item["session_id"] for item in transcripts} == {
+        str(first.id), str(second.id)
+    }
+    assert all(item["speaker_id"] == survivor["id"] for item in transcripts)
+
+    timeline = (
+        await client.get(f"/v1/sessions/{first.id}/timeline", headers=account.headers)
+    ).json()
+    events = [e for e in timeline["items"] if e["type"] == "transcript"]
+    assert len(events) == 2
+    assert all(
+        e["speaker_id"] == survivor["id"] and e["speaker_name"] == "Mom"
+        for e in events
+    )
+
+
+async def test_merge_guards_reject_self_and_foreign_targets(
+    worker: None, client: httpx.AsyncClient, clean_state
+) -> None:
+    account = await make_account()
+    other = await make_account()
+    await _diarized_session(account)
+    await _diarized_session(other)
+    mine = (await _speakers(client, account))[0]
+    foreign = (await _speakers(client, other))[0]
+
+    async def merge_into(target_id: str) -> httpx.Response:
+        return await client.post(
+            f"/v1/speakers/{mine['id']}/merge",
+            headers=account.headers,
+            json={"into_speaker_id": target_id},
+        )
+
+    assert (await merge_into(mine["id"])).status_code == 422  # self-merge
+    assert (await merge_into(foreign["id"])).status_code == 404  # not yours
+    assert (await merge_into(str(uuid4()))).status_code == 404  # unknown
+
+    assert len(await _speakers(client, account)) == 2  # nothing merged
+    assert len(await _speakers(client, other)) == 2  # and nothing lost

@@ -12,6 +12,7 @@ from itertools import chain
 from uuid import UUID
 
 from api.schema.timeline import (
+    AudioTagEvent,
     SessionEndEvent,
     SessionStartEvent,
     SpeechEndEvent,
@@ -34,6 +35,7 @@ _TYPE_RANK = {
     "speech-end": 1,
     "speech-start": 2,
     "transcript": 3,
+    "audio-tag": 4,
     "session-end": 100,
 }
 _DEFAULT_RANK = 50
@@ -74,6 +76,20 @@ def _transcript_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
         chars=artifact.metadata.get("chars", len(text)),
         model=artifact.metadata.get("model"),
         speaker=artifact.metadata.get("speaker"),
+    )
+
+
+@expander("audio-tag", "audio-tag")
+def _audio_tag_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
+    if artifact.start_ms is None or artifact.end_ms is None:
+        return
+    yield AudioTagEvent(
+        at_ms=artifact.start_ms,
+        artifact_id=artifact.id,
+        start_ms=artifact.start_ms,
+        end_ms=artifact.end_ms,
+        labels=tuple(artifact.metadata.get("labels", ())),
+        model=artifact.metadata.get("model"),
     )
 
 

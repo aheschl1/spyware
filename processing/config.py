@@ -73,15 +73,34 @@ class ProcessingSettings(BaseSettings):
     diarize_utterance_merge_gap_ms: int = 1_500
     diarize_max_utterance_ms: int = 30_000
 
-    # Speaker clustering tier: cosine distances over per-(block, speaker)
-    # embeddings. Assign attaches an embedding to its nearest cluster; merge
-    # (stricter) collapses clusters whose centroids converge. Embeddings from
-    # under min_talk_ms of speech are skipped as unreliable voice-prints.
-    # Calibrated on real glasses sessions (pyannote 3.1 / wespeaker): the
-    # same voice spreads up to ~0.6 across blocks and sessions; known
-    # different voices in one conversation sat at ~0.9.
-    cluster_assign_max_distance: float = 0.60
-    cluster_merge_max_distance: float = 0.50
+    # Audio-tag tier: sound-event classes + CLAP embeddings per ~10s window.
+    # The base URL speaks the audio_tagger contract (POST {base}/audio/analyze
+    # multipart -> per-window labels + embedding); swapping backends is
+    # env-only. Rendered spans are large so a session is a handful of uploads,
+    # overlapping by window-minus-hop to keep the service's hop grid
+    # continuous across seams (window/hop here mirror the service's defaults).
+    classifier_base_url: str = "http://127.0.0.1:8035/v1"
+    classifier_timeout_seconds: float = 600.0
+    audio_tag_span_ms: int = 120_000
+    audio_tag_window_ms: int = 10_000
+    audio_tag_hop_ms: int = 5_000
+    # Per-window floor: labels below it aren't worth a metadata row. Session
+    # tags additionally need `threshold` held for `min_consecutive` windows
+    # in a row — transient false positives rarely persist across two.
+    audio_tag_window_min_score: float = 0.15
+    audio_tag_threshold: float = 0.3
+    audio_tag_min_consecutive: int = 2
+    audio_tag_top_k: int = 15
+
+    # Speaker clustering tier: batch agglomerative clustering (average
+    # linkage, cosine) over per-(block, speaker) embeddings; merging stops at
+    # this distance. Embeddings from under min_talk_ms of speech are skipped
+    # as unreliable voice-prints. Both are env DEFAULTS — a cluster_params
+    # row overrides them per user. Calibrated on real glasses sessions
+    # (pyannote 3.1 / wespeaker): the same voice spreads up to ~0.6 across
+    # blocks and sessions; known different voices in one conversation sat at
+    # ~0.9.
+    cluster_distance: float = 0.65
     cluster_min_talk_ms: int = 3_000
 
 

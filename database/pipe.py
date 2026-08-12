@@ -20,11 +20,14 @@ from psycopg_pool import AsyncConnectionPool
 
 from database.config import DatabaseSettings, get_settings
 from database.repos.artifacts import ArtifactsRepo
-from database.repos.embeddings import EmbeddingsRepo
+from database.repos.cluster_params import ClusterParamsRepo
+from database.repos.embeddings import AudioEmbeddingsRepo, EmbeddingsRepo
 from database.repos.jobs import JobsRepo
 from database.repos.segments import SegmentsRepo
 from database.repos.sessions import SessionsRepo
 from database.repos.speakers import SpeakersRepo
+from database.repos.tags import TagsRepo
+from database.repos.transcripts import TranscriptSearchRepo
 from database.repos.tokens import TokensRepo
 from database.repos.users import UsersRepo
 
@@ -131,8 +134,24 @@ class DatabasePipe:
         return EmbeddingsRepo(self.connection)
 
     @cached_property
+    def audio_embeddings(self) -> AudioEmbeddingsRepo:
+        return AudioEmbeddingsRepo(self.connection)
+
+    @cached_property
     def speakers(self) -> SpeakersRepo:
         return SpeakersRepo(self.connection)
+
+    @cached_property
+    def cluster_params(self) -> ClusterParamsRepo:
+        return ClusterParamsRepo(self.connection)
+
+    @cached_property
+    def tags(self) -> TagsRepo:
+        return TagsRepo(self.connection)
+
+    @cached_property
+    def transcripts(self) -> TranscriptSearchRepo:
+        return TranscriptSearchRepo(self.connection)
 
     def _clear_repos(self) -> None:
         """Drop cached repositories so none outlives its connection."""

@@ -14,21 +14,16 @@ from psycopg.rows import dict_row
 
 from database.repos.base import BaseRepo
 from database.schema.speakers import (
-    ClusterCandidate,
+    CorpusEmbedding,
     SessionSpeakerLabel,
     Speaker,
     SpeakerCreate,
+    SpeakerMember,
     SpeakerSummary,
     SpeakerTranscript,
 )
 
 COLUMNS = "id, user_id, name, model, centroid::text AS centroid, created_at, updated_at"
-
-_CANDIDATE_COLUMNS = """
-    e.artifact_id, e.session_id, e.speaker, e.model,
-    e.embedding::text AS embedding,
-    (a.metadata->>'talk_ms')::bigint AS talk_ms
-"""
 
 _TRANSCRIPT_COLUMNS = """
     t.id AS artifact_id, t.session_id, e.speaker_id, e.speaker,
@@ -116,43 +111,140 @@ class SpeakersRepo(BaseRepo):
             (name, speaker_id),
         )
 
-    # ----------------------------------------------------------- clustering
 
-    async def nearest(
-        self, user_id: UUID, model: str, vector: Sequence[float]
-    ) -> tuple[Speaker, float] | None:
-        """The user's closest cluster for this model, with cosine distance."""
+    async def corpus_for_user(self, user_id: UUID) -> list[CorpusEmbedding]:
+        """Every voice-print of the user with its previous assignment and pin
+        — the batch clusterer's whole input, in deterministic order."""
+        return await self._fetch_all(
+            CorpusEmbedding,
+            """
+                SELECT e.artifact_id, e.session_id, e.speaker, e.model,
+                       e.embedding::text AS embedding,
+                       (a.metadata->>'talk_ms')::bigint AS talk_ms,
+                       e.speaker_id, p.speaker_id AS pinned_to
+                FROM speaker_embeddings e
+                JOIN recording_sessions rs ON rs.id = e.session_id
+                LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                WHERE rs.user_id = %s
+                ORDER BY e.artifact_id
+            """,
+            (user_id,),
+        )
+
+    async def similar(
+        self,
+        user_id: UUID,
+        model: str,
+        vector: Sequence[float],
+        exclude_id: UUID,
+        limit: int = 20,
+    ) -> list[tuple[SpeakerSummary, float]]:
+        """The user's other clusters in this model, closest centroid first —
+        the candidate list for a manual merge, distances included so the UI
+        can show how far apart two voices really are."""
         literal = _literal(vector)
         async with self._conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
-                f"""
-                    SELECT {COLUMNS}, centroid <=> %s::vector AS distance
-                    FROM speakers
-                    WHERE user_id = %s AND model = %s
-                    ORDER BY centroid <=> %s::vector
-                    LIMIT 1
+                """
+                    SELECT s.id, s.user_id, s.name, s.model,
+                           s.centroid::text AS centroid, s.created_at, s.updated_at,
+                           count(e.artifact_id) AS embeddings,
+                           count(DISTINCT e.session_id) AS sessions,
+                           s.centroid <=> %s::vector AS distance
+                    FROM speakers s
+                    LEFT JOIN speaker_embeddings e ON e.speaker_id = s.id
+                    WHERE s.user_id = %s AND s.model = %s AND s.id != %s
+                    GROUP BY s.id
+                    ORDER BY distance, s.id
+                    LIMIT %s
                 """,
-                (literal, user_id, model, literal),
+                (literal, user_id, model, exclude_id, limit),
             )
-            row = await cur.fetchone()
-        if row is None:
-            return None
-        distance = row.pop("distance")
-        return Speaker.model_validate(row), float(distance)
+            rows = await cur.fetchall()
+        ranked: list[tuple[SpeakerSummary, float]] = []
+        for row in rows:
+            distance = float(row.pop("distance"))
+            ranked.append((SpeakerSummary.model_validate(row), distance))
+        return ranked
 
-    async def assign_if_unassigned(self, artifact_id: UUID, speaker_id: UUID) -> bool:
-        """Attach an embedding to a cluster unless it vanished or was claimed.
-
-        Rowcount 0 means diarize republished mid-job (row deleted) or a
-        replayed job already assigned it — either way the caller skips.
-        """
+    async def clear_assignments(self, user_id: UUID, model: str) -> int:
+        """Rebuild prep: detach every embedding of one (user, model) corpus.
+        Assignments are derived data, rewritten wholesale each batch run."""
         return await self._execute(
             """
-                UPDATE speaker_embeddings SET speaker_id = %s
-                WHERE artifact_id = %s AND speaker_id IS NULL
+                UPDATE speaker_embeddings e SET speaker_id = NULL
+                FROM recording_sessions rs
+                WHERE rs.id = e.session_id AND rs.user_id = %s
+                  AND e.model = %s AND e.speaker_id IS NOT NULL
             """,
-            (speaker_id, artifact_id),
+            (user_id, model),
+        )
+
+    async def set_assignments(
+        self, speaker_id: UUID, artifact_ids: Sequence[UUID]
+    ) -> int:
+        return await self._execute(
+            "UPDATE speaker_embeddings SET speaker_id = %s WHERE artifact_id = ANY(%s)",
+            (speaker_id, list(artifact_ids)),
+        )
+
+
+    async def pin(self, artifact_id: UUID, speaker_id: UUID) -> None:
+        """Assert a voice-print's identity; every future rebuild honors it."""
+        await self._execute(
+            """
+                INSERT INTO speaker_pins (artifact_id, speaker_id)
+                VALUES (%s, %s)
+                ON CONFLICT (artifact_id) DO UPDATE
+                    SET speaker_id = EXCLUDED.speaker_id
+            """,
+            (artifact_id, speaker_id),
+        )
+
+    async def reassign(
+        self, artifact_id: UUID, from_speaker_id: UUID, to_speaker_id: UUID
+    ) -> bool:
+        """Move one voice-print between clusters. Rowcount-guarded on the
+        source: 0 means membership changed under the caller (a rebuild ran
+        between their read and this write) — surface, don't guess."""
+        moved = await self._execute(
+            """
+                UPDATE speaker_embeddings SET speaker_id = %s
+                WHERE artifact_id = %s AND speaker_id = %s
+            """,
+            (to_speaker_id, artifact_id, from_speaker_id),
         ) > 0
+        if moved:
+            await self.recompute_centroid(from_speaker_id)
+            await self.recompute_centroid(to_speaker_id)
+        return moved
+
+    async def unpin_member(self, artifact_id: UUID, speaker_id: UUID) -> bool:
+        """Drop a pin, guarded by current membership of the given cluster."""
+        return await self._execute(
+            """
+                DELETE FROM speaker_pins p
+                USING speaker_embeddings e
+                WHERE p.artifact_id = %s AND e.artifact_id = p.artifact_id
+                  AND e.speaker_id = %s
+            """,
+            (artifact_id, speaker_id),
+        ) > 0
+
+    async def pin_members_of(self, speaker_id: UUID, target_id: UUID) -> int:
+        """Pin every current member of one cluster to an identity — how a
+        manual merge survives batch rebuilds."""
+        return await self._execute(
+            """
+                INSERT INTO speaker_pins (artifact_id, speaker_id)
+                SELECT artifact_id, %s FROM speaker_embeddings
+                WHERE speaker_id = %s
+                ON CONFLICT (artifact_id) DO UPDATE
+                    SET speaker_id = EXCLUDED.speaker_id
+            """,
+            (target_id, speaker_id),
+        )
 
     async def recompute_centroid(self, speaker_id: UUID) -> None:
         """Centroid = mean of current members; an empty cluster keeps its
@@ -169,20 +261,40 @@ class SpeakersRepo(BaseRepo):
             (speaker_id, speaker_id),
         )
 
-    async def member_counts(self, user_id: UUID, model: str) -> dict[UUID, int]:
-        async with self._conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                """
-                    SELECT s.id, count(e.artifact_id) AS members
-                    FROM speakers s
-                    LEFT JOIN speaker_embeddings e ON e.speaker_id = s.id
-                    WHERE s.user_id = %s AND s.model = %s
-                    GROUP BY s.id
-                """,
-                (user_id, model),
-            )
-            rows = await cur.fetchall()
-        return {row["id"]: row["members"] for row in rows}
+    async def members(
+        self, speaker_id: UUID, limit: int = 50, offset: int = 0
+    ) -> list[SpeakerMember]:
+        """A cluster's voice-prints, farthest from the centroid first — the
+        inspection order: outliers (likely wrong voices) surface on top. The
+        clip is the voice's longest utterance in that block, the same
+        (session, namespaced-label) join the transcript routes use."""
+        return await self._fetch_all(
+            SpeakerMember,
+            """
+                SELECT e.artifact_id, e.session_id, rs.started_at, e.speaker,
+                       (a.metadata->>'talk_ms')::bigint AS talk_ms,
+                       e.embedding <=> s.centroid AS distance,
+                       p.artifact_id IS NOT NULL AS pinned,
+                       u.start_ms AS clip_start_ms, u.end_ms AS clip_end_ms
+                FROM speaker_embeddings e
+                JOIN speakers s ON s.id = e.speaker_id
+                JOIN recording_sessions rs ON rs.id = e.session_id
+                LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                LEFT JOIN LATERAL (
+                    SELECT t.start_ms, t.end_ms FROM pipeline_artifacts t
+                    WHERE t.session_id = e.session_id
+                      AND t.pipeline = 'diarize' AND t.kind = 'utterance'
+                      AND t.metadata->>'speaker' = e.speaker
+                    ORDER BY t.end_ms - t.start_ms DESC
+                    LIMIT 1
+                ) u ON true
+                WHERE e.speaker_id = %s
+                ORDER BY distance DESC, e.artifact_id
+                LIMIT %s OFFSET %s
+            """,
+            (speaker_id, limit, offset),
+        )
 
     async def list_for_user_model(self, user_id: UUID, model: str) -> list[Speaker]:
         return await self._fetch_all(
@@ -216,58 +328,6 @@ class SpeakersRepo(BaseRepo):
                   )
             """,
             (user_id, model),
-        )
-
-    async def unassigned_for_session(self, session_id: UUID) -> list[ClusterCandidate]:
-        """The session's not-yet-clustered embeddings, longest speech first
-        (strong voice-prints seed clusters; rows without talk_ms sort first
-        and pass the gate — they predate the stamp)."""
-        return await self._fetch_all(
-            ClusterCandidate,
-            f"""
-                SELECT {_CANDIDATE_COLUMNS}
-                FROM speaker_embeddings e
-                LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
-                WHERE e.session_id = %s AND e.speaker_id IS NULL
-                ORDER BY (a.metadata->>'talk_ms')::bigint DESC NULLS FIRST,
-                         e.artifact_id
-            """,
-            (session_id,),
-        )
-
-    async def unassigned_for_user(self, user_id: UUID) -> list[ClusterCandidate]:
-        """Every unassigned embedding across the user's sessions (rebuild)."""
-        return await self._fetch_all(
-            ClusterCandidate,
-            f"""
-                SELECT {_CANDIDATE_COLUMNS}
-                FROM speaker_embeddings e
-                JOIN recording_sessions rs ON rs.id = e.session_id
-                LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
-                WHERE rs.user_id = %s AND e.speaker_id IS NULL
-                ORDER BY (a.metadata->>'talk_ms')::bigint DESC NULLS FIRST,
-                         e.artifact_id
-            """,
-            (user_id,),
-        )
-
-    async def clear_assignments_for_user(self, user_id: UUID) -> int:
-        """Rebuild prep: detach every embedding of the user from its cluster."""
-        return await self._execute(
-            """
-                UPDATE speaker_embeddings e SET speaker_id = NULL
-                FROM recording_sessions rs
-                WHERE rs.id = e.session_id AND rs.user_id = %s
-                  AND e.speaker_id IS NOT NULL
-            """,
-            (user_id,),
-        )
-
-    async def delete_unlabeled_for_user(self, user_id: UUID) -> int:
-        """Rebuild prep: unnamed clusters churn; named ones anchor identity."""
-        return await self._execute(
-            "DELETE FROM speakers WHERE user_id = %s AND name IS NULL",
-            (user_id,),
         )
 
     # ------------------------------------------------------------- read side

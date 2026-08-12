@@ -89,7 +89,35 @@ class TranscriptEvent(ArtifactEventBase):
     )
 
 
+class AudioTagLabel(BaseModel):
+    """One scored sound-event class on a window."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str = Field(description="AudioSet class name, e.g. ``Music`` or ``Typing``.")
+    score: float = Field(description="The tagger's sigmoid score for the class.")
+
+
+class AudioTagEvent(ArtifactEventBase):
+    """Sound-event classes heard over ``[start_ms, end_ms)``; positioned at
+    the start. One event per classified window (~10s); a window whose every
+    class scored below the floor carries an empty list."""
+
+    type: Literal["audio-tag"] = "audio-tag"
+    start_ms: int = Field(description="Start of the classified window, ms.")
+    end_ms: int = Field(description="End (exclusive) of the classified window, ms.")
+    labels: tuple[AudioTagLabel, ...] = Field(
+        description="Scored classes, best first, ontology ancestors suppressed."
+    )
+    model: str | None = Field(None, description="The tagging model that produced them.")
+
+
 type TimelineEvent = Annotated[
-    SessionStartEvent | SessionEndEvent | SpeechEndEvent | SpeechStartEvent | TranscriptEvent,
+    SessionStartEvent
+    | SessionEndEvent
+    | SpeechEndEvent
+    | SpeechStartEvent
+    | TranscriptEvent
+    | AudioTagEvent,
     Field(discriminator="type"),
 ]

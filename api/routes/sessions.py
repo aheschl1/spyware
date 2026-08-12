@@ -5,15 +5,17 @@ Audio enters a session through the streaming websocket (see
 """
 
 from collections.abc import AsyncIterator
+from datetime import timedelta
 
 from fastapi import APIRouter, Query, Request, Response, status
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from api import session_audio, timeline_events
 from services import stitch
-from api.deps import CurrentUser, OwnedSession, Paging, Pipe
+from api.deps import CurrentUser, OwnedSession, Paging, Pipe, PlayableSession
 from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.artifacts import ArtifactRead
+from api.schema.auth import PlaybackTokenRead
 from api.schema.common import ErrorResponse, Page
 from api.schema.segments import SegmentRead
 from api.schema.sessions import SessionCreateRequest, SessionRead
@@ -69,6 +71,32 @@ async def get_session(session: OwnedSession) -> SessionRead:
 async def end_session(session: OwnedSession, pipe: Pipe) -> SessionRead:
     """Idempotent in effect; re-ending only moves the end timestamp."""
     return SessionRead.from_model(await pipe.sessions.end(session.id))
+
+
+# Minutes, not hours: the token rides in the audio URL's query string, where
+# it lands in server logs and browser history. Short life bounds that leak.
+_PLAYBACK_TTL = timedelta(minutes=15)
+_PLAYBACK_TOKEN_NAME = "playback"
+
+
+@router.post("/{session_id}/playback", summary="Mint a short-lived audio playback token")
+async def create_playback_token(session: OwnedSession, pipe: Pipe) -> PlaybackTokenRead:
+    """A token for the audio route's ``?token=`` parameter.
+
+    Media elements (``<audio src>``) cannot send an Authorization header, so
+    the session-audio route also accepts a token in the URL. This mints one
+    whose lifetime is minutes; the player re-mints when it expires. It is a
+    real API token, just time-boxed — expired ``playback`` rows are purged
+    opportunistically on each mint.
+    """
+    await pipe.tokens.purge_expired_named(session.user_id, _PLAYBACK_TOKEN_NAME)
+    issued = await pipe.tokens.issue(
+        session.user_id, name=_PLAYBACK_TOKEN_NAME, ttl=_PLAYBACK_TTL
+    )
+    assert issued.record.expires_at is not None  # ttl was given
+    return PlaybackTokenRead(
+        token=issued.token.get_secret_value(), expires_at=issued.record.expires_at
+    )
 
 
 @router.get("/{session_id}/segments", summary="List a session's audio segments")
@@ -226,7 +254,7 @@ async def _stream_stitched(
         416: {"description": "The requested range lies outside the audio."},
     },
 )
-async def get_session_audio(session: OwnedSession, request: Request) -> Response:
+async def get_session_audio(session: PlayableSession, request: Request) -> Response:
     """Every segment's PCM behind a single WAV header, in sequence order.
 
     The stitched size is known from the rows alone, so `Range` (seeking) and

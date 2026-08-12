@@ -8,7 +8,7 @@ already loaded and confirmed to belong to the caller.
 from typing import Annotated, AsyncIterator
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Path, status
+from fastapi import Depends, HTTPException, Path, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from api.schema.common import PageParams
@@ -82,10 +82,7 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
-async def get_owned_session(
-    user: CurrentUser,
-    session_id: Annotated[UUID, Path(description="A recording session belonging to you.")],
-) -> RecordingSession:
+async def _load_owned_session(user: User, session_id: UUID) -> RecordingSession:
     """Load a session the caller owns. Another user's session raises 404.
 
     Resolved on its own short-lived connection rather than the request's
@@ -101,7 +98,42 @@ async def get_owned_session(
     return session
 
 
+async def get_owned_session(
+    user: CurrentUser,
+    session_id: Annotated[UUID, Path(description="A recording session belonging to you.")],
+) -> RecordingSession:
+    return await _load_owned_session(user, session_id)
+
+
 OwnedSession = Annotated[RecordingSession, Depends(get_owned_session)]
+
+
+async def get_playable_session(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    session_id: Annotated[UUID, Path(description="A recording session belonging to you.")],
+    token: Annotated[
+        str | None,
+        Query(
+            description="Bearer token as a query parameter, for media elements "
+            "that cannot send an Authorization header. Mint a short-lived one "
+            "via POST /v1/sessions/{session_id}/playback. Ignored when the "
+            "header is present."
+        ),
+    ] = None,
+) -> RecordingSession:
+    """``OwnedSession`` for media routes: `<audio src>` cannot set headers, so
+    the token may arrive as ``?token=``. Any live token works — the query
+    channel widens *transport*, not privilege — but URLs land in logs and
+    history, which is why the playback route mints minutes-lived ones."""
+    user = await authenticate_bearer(
+        credentials.credentials if credentials else token
+    )
+    if user is None:
+        raise _UNAUTHENTICATED
+    return await _load_owned_session(user, session_id)
+
+
+PlayableSession = Annotated[RecordingSession, Depends(get_playable_session)]
 
 
 async def get_owned_segment(

@@ -151,3 +151,15 @@ class TokensRepo(BaseRepo):
         return await self._execute(
             "DELETE FROM auth_tokens WHERE expires_at IS NOT NULL AND expires_at <= now()"
         )
+
+    async def purge_expired_named(self, user_id: UUID, name: str) -> int:
+        """Delete one user's expired tokens carrying ``name``.
+
+        High-churn short-TTL tokens (playback) would otherwise accumulate a
+        dead row per mint; the minting route calls this opportunistically.
+        """
+        return await self._execute(
+            "DELETE FROM auth_tokens WHERE user_id = %s AND name = %s "
+            "AND expires_at IS NOT NULL AND expires_at <= now()",
+            (user_id, name),
+        )

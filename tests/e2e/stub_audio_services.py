@@ -1,10 +1,10 @@
 """Stand-in audio model services for the e2e suite.
 
-Speaks just enough of the transcription and diarization contracts for the
-worker tiers, with deterministic canned answers; response bodies echo the
-received byte count so tests can assert the clip actually crossed the wire.
-Stdlib only — runs as ``python -m tests.e2e.stub_audio_services PORT`` next to
-the real worker process.
+Speaks just enough of the transcription, diarization and classification
+contracts for the worker tiers, with deterministic canned answers; response
+bodies echo the received byte count so tests can assert the clip actually
+crossed the wire. Stdlib only — runs as ``python -m
+tests.e2e.stub_audio_services PORT`` next to the real worker process.
 """
 
 import json
@@ -24,6 +24,30 @@ STUB_EMBEDDINGS = {
 }
 STUB_DIAR_MODEL = "stub-diarizer"
 
+# Two windows, fixed: Music persists across both (qualifies as a session tag
+# with the default min_consecutive=2), Speech appears once (window-only).
+STUB_WINDOWS = [
+    {
+        "start_ms": 0,
+        "end_ms": 150,
+        "labels": [
+            {"label": "Music", "score": 0.9},
+            {"label": "Speech", "score": 0.35},
+        ],
+        "embedding": [1.0, 0.0, 0.0, 0.0],
+    },
+    {
+        "start_ms": 150,
+        "end_ms": 300,
+        "labels": [{"label": "Music", "score": 0.8}],
+        "embedding": [0.0, 1.0, 0.0, 0.0],
+    },
+]
+STUB_TAGGER_MODEL = "stub-tagger"
+STUB_CLAP_MODEL = "stub-clap"
+# Nearest STUB_WINDOWS[0] by cosine distance, so search tests rank window one first.
+STUB_TEXT_EMBEDDING = [1.0, 0.0, 0.0, 0.0]
+
 
 class _Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 (http.server's naming)
@@ -38,6 +62,16 @@ class _Handler(BaseHTTPRequestHandler):
                 "model": STUB_DIAR_MODEL,
                 "received_bytes": len(body),
             }
+        elif self.path.endswith("/audio/analyze"):
+            payload = {
+                "windows": STUB_WINDOWS,
+                "window_ms": 10_000,
+                "hop_ms": 5_000,
+                "models": {"tagger": STUB_TAGGER_MODEL, "clap": STUB_CLAP_MODEL},
+                "received_bytes": len(body),
+            }
+        elif self.path.endswith("/text/embeddings"):
+            payload = {"embeddings": [STUB_TEXT_EMBEDDING], "model": STUB_CLAP_MODEL}
         else:
             self.send_error(404)
             return
