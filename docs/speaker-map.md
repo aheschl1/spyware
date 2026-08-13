@@ -50,8 +50,8 @@ the whole corpus instead of only its oldest sessions.
 `distance` on a point is the cosine distance to its centroid in the **full
 256-d space** — the same number `SpeakersView` shows. It is not the on-screen
 distance, which is a shadow. Two components out of 256 explain ~15% of the
-variance on the current corpus, so the UI states that figure and the inspector
-gives the real one.
+variance on the current corpus, so the toolbar pill carries that figure and the
+inspector gives the real one.
 
 ## Cost, measured
 
@@ -108,8 +108,18 @@ Nothing below is needed today; the triggers are latency, not dates.
 
 Three components are always computed (`eigh` returns them regardless), shown as
 three orthogonal 2-D pairs — PC1·PC2, PC1·PC3, PC2·PC3 — plus an orbitable 3-D
-scene. The explained-variance figure is derived from the components currently on
+scene. The explained-variance pill is derived from the components currently on
 screen, so switching views changes it; PC2·PC3 is ~8.7% where PC1·PC2 is ~15.3%.
+The per-component breakdown is the pill's tooltip.
+
+**The layout is width-dependent, and that is load-bearing.** Below 640px the
+legend is dropped and the plot margins collapse: a fixed 176px legend gutter is
+nearly half a phone's width. `.map-plot` also carries an explicit `width: 100%` —
+in the mobile column layout `flex: 1` sizes height, not width, and Plotly
+silently falls back to its **700×450 default** when it measures a zero-width
+container at mount, which overflows the viewport and renders the points
+off-screen. That failure looks exactly like "the plot didn't render", and it
+reproduces only at a phone viewport.
 
 Both modes preserve equal units, since PCA axes are commensurate: 2-D via
 `scaleanchor`, 3-D via `aspectmode: "data"`. (`"cube"` would force a cube box and

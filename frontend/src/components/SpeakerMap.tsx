@@ -21,6 +21,22 @@ const LEGEND_LIMIT = 14
 const MUTED = "#8d96a8"
 const GRID = "#1f2530"
 
+// Phones get no legend and hairline margins: a fixed 176px legend gutter is
+// nearly half a phone's width, which leaves the drawing area too small to read.
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth <= 640,
+  )
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 640px)")
+    const update = () => setNarrow(query.matches)
+    update()
+    query.addEventListener("change", update)
+    return () => query.removeEventListener("change", update)
+  }, [])
+  return narrow
+}
+
 let plotPromise: Promise<ComponentType<Record<string, unknown>>> | null = null
 
 // Plotly dwarfs the rest of the app; a dynamic import keeps it in its own
@@ -58,6 +74,7 @@ export default function SpeakerMap({
   const [selected, setSelected] = useState<ProjectionPointRead | null>(null)
 
   const is3d = view.key === "3d"
+  const narrow = useIsNarrow()
 
   useEffect(() => {
     void loadPlot().then(setPlot, (reason) => {
@@ -122,7 +139,7 @@ export default function SpeakerMap({
           // A corpus is mostly one- and two-print clusters; listing all of
           // them buries the voices that matter and covers the plot. The tail
           // still draws in its own colour, and the inspector still names it.
-          showlegend: index < LEGEND_LIMIT,
+          showlegend: !narrow && index < LEGEND_LIMIT,
           x: points.map((point) => point.coords[ax ?? 0]),
           y: points.map((point) => point.coords[ay ?? 1]),
           ...(is3d ? { z: points.map((point) => point.coords[az ?? 2]) } : {}),
@@ -151,7 +168,7 @@ export default function SpeakerMap({
             "speech %{customdata[2]}s · distance %{customdata[3]}<extra></extra>",
         }
       })
-  }, [data, view, is3d])
+  }, [data, view, is3d, narrow])
 
   const layout = useMemo(() => {
     const axis = (index: number) => ({
@@ -170,11 +187,13 @@ export default function SpeakerMap({
       paper_bgcolor: "rgba(0,0,0,0)",
       plot_bgcolor: "#0b0d12",
       font: { color: MUTED, size: 11 },
-      margin: is3d
-        ? { l: 0, r: 176, t: 0, b: 0 }
-        : { l: 48, r: 176, t: 12, b: 40 },
+      margin: narrow
+        ? { l: is3d ? 0 : 40, r: 8, t: 8, b: is3d ? 0 : 34 }
+        : is3d
+          ? { l: 0, r: 176, t: 0, b: 0 }
+          : { l: 48, r: 176, t: 12, b: 40 },
       hovermode: "closest",
-      showlegend: true,
+      showlegend: !narrow,
       // Outside the plotting area: the points must not hide behind a legend.
       legend: {
         x: 1.015,
@@ -203,7 +222,7 @@ export default function SpeakerMap({
             yaxis: { ...axis(ay ?? 1), scaleanchor: "x" },
           }),
     }
-  }, [data?.basis_id, view, is3d])
+  }, [data?.basis_id, view, is3d, narrow])
 
   if (error) return <div className="banner">{error}</div>
   if (!data || !Plot) return <div className="loading">loading the voice map…</div>
@@ -253,25 +272,18 @@ export default function SpeakerMap({
           unassigned
         </label>
 
+        <span
+          className="chip map-variance"
+          title={`${parts.map((p) => `${p.label} ${(p.share * 100).toFixed(1)}%`).join(" + ")} of the variance across ${data.fit_points} voice-prints. The rest is not on screen.`}
+        >
+          {(total * 100).toFixed(1)}%
+        </span>
+
         <span className="row-dim">
-          {data.returned} of {data.fit_points} voice-prints
+          {data.returned} of {data.fit_points}
           {data.truncated && " (sampled)"}
         </span>
       </div>
-
-      <p className="map-caveat">
-        {parts.map((part, index) => (
-          <span key={part.label}>
-            {index > 0 && " + "}
-            {part.label}{" "}
-            <span className="row-dim">{(part.share * 100).toFixed(1)}%</span>
-          </span>
-        ))}{" "}
-        = <strong>{(total * 100).toFixed(1)}%</strong> of the variance across{" "}
-        {data.fit_points} voice-prints. The other{" "}
-        {((1 - total) * 100).toFixed(1)}% is not on screen — voices that look
-        close here may not be. Click a point for its true distance.
-      </p>
 
       <div className="map-body">
         <div className={`map-plot ${is3d ? "is-3d" : ""}`}>

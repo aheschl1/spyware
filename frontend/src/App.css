@@ -1215,16 +1215,11 @@ button.row:hover,
   font-size: 13px;
 }
 
-/* The plot is a shadow of a 256-dimensional space; saying so is not optional. */
-.map-caveat {
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text-muted);
-  font-size: 12.5px;
-  line-height: 1.5;
+/* Two of 256 components carry ~15%; the figure is worth a glance, not a
+   paragraph. The full breakdown is the title tooltip. */
+.map-variance {
+  font-variant-numeric: tabular-nums;
+  cursor: help;
 }
 
 .map-body {
@@ -1235,6 +1230,10 @@ button.row:hover,
 
 .map-plot {
   flex: 1;
+  /* Explicit width: in the mobile column layout `flex: 1` sizes height, not
+     width, and Plotly silently falls back to its 700x450 default when it
+     measures a zero-width container at mount. */
+  width: 100%;
   min-width: 0;
   height: 62vh;
   min-height: 380px;
