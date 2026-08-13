@@ -28,7 +28,7 @@ Env knobs: `TAGGER_MODEL`, `CLAP_MODEL`, `WINDOW_MS` (10000), `HOP_MS` (5000),
 ## Deploy
 
 Wired into `deploy/docker-compose.yml` as `audio-tagger` on
-`127.0.0.1:8035` / `10.8.0.1:8035` (8033 = ASR, 8034 = diarizer):
+`127.0.0.1:8035` (8033 = ASR, 8034 = diarizer):
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build audio-tagger
