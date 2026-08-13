@@ -1,0 +1,274 @@
+# The full stack: API, worker, web tier, and the three GPU model sidecars.
+#
+# Postgres and MinIO are optional here, behind the `stores` profile. Bring your
+# own by setting DATABASE_HOST and STORAGE_ENDPOINT_URL in .env, or run them in
+# the stack:
+#
+#   docker compose --profile stores up -d
+#
+# With no .env overrides the defaults below point at the in-stack containers,
+# so that command is a working deployment on a fresh machine. `make stack-up`
+# deliberately does not pass the profile.
+#
+# Local development is unaffected either way. `make sidecars` starts just the
+# three model containers, published on 127.0.0.1:8033-8035 — exactly where the
+# code's own defaults point — so a host-run `make api` / `make worker` finds
+# them with no configuration. The docker-network addresses below are overrides
+# that exist only inside this stack; there is no mode flag in the code.
+
+name: audio-pipeline
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  image: audio-pipeline-app:latest
+  env_file: [.env]
+  environment: &app-env
+    # Default to the `stores` profile's containers; override in .env to point
+    # at stores you already run. An external store must be reachable from this
+    # stack's bridge — note that Docker skips published-port DNAT for traffic
+    # arriving on the target's own bridge, so a store container on a different
+    # bridge is reachable by host IP but one on THIS bridge is not.
+    DATABASE_HOST: ${DATABASE_HOST:-postgres}
+    STORAGE_ENDPOINT_URL: ${STORAGE_ENDPOINT_URL:-http://minio:9000}
+    # Sidecars by service name. API_CLASSIFIER_BASE_URL is a separate setting
+    # from the PROCESSING_ one — the API's text->audio search uses it — and
+    # they must not drift, hence one anchor for both.
+    PROCESSING_TRANSCRIBER_BASE_URL: http://asr-parakeet:8000/v1
+    PROCESSING_DIARIZER_BASE_URL: http://diar-pyannote:8000/v1
+    PROCESSING_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
+    API_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
+  networks: [audio-net]
+
+# `required: false` so these resolve to a no-op when the profile is off.
+x-stores: &wait-for-stores
+  postgres:
+    condition: service_healthy
+    required: false
+  minio:
+    condition: service_healthy
+    required: false
+
+x-gpu: &gpu
+  runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            capabilities: [gpu]
+
+# python3, not curl: guaranteed present in these images. urlopen raises on the
+# 503 the servers answer while weights are loading.
+x-sidecar-healthcheck: &sidecar-healthcheck
+  test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+  interval: 30s
+  timeout: 10s
+  retries: 5
+
+services:
+  # Schema first; api and worker wait for it to exit 0. Idempotent, so it
+  # re-runs harmlessly on every `up`.
+  migrate:
+    <<: *app
+    container_name: audio-migrate
+    command: ["alembic", "upgrade", "head"]
+    depends_on: *wait-for-stores
+    restart: "no"
+
+  api:
+    <<: *app
+    container_name: audio-api
+    # The default bind is 127.0.0.1 (api/main.py), which inside a container
+    # means nothing else can reach it.
+    command: ["python", "-m", "api", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      # /health, not /health/ready: the ready probe touches Postgres and calls
+      # ensure_bucket() on MinIO, so a blip in either would kill the container.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # One supervisor, one child process per pipeline. Never scale this: orphan
+  # recovery assumes exactly one (docs/processing-pipelines.md).
+  worker:
+    <<: *app
+    container_name: audio-worker
+    command: ["python", "-m", "processing"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      # A cold sidecar refuses connections, which the tiers treat as a
+      # retryable failure — five attempts with a 2s base exhaust in ~30s,
+      # far inside the sidecars' 5-15 minute weight load. Without this gate
+      # every queued job dead-letters at stack start.
+      asr-parakeet: {condition: service_healthy}
+      diar-pyannote: {condition: service_healthy}
+      audio-tagger: {condition: service_healthy}
+    # PROCESSING_SHUTDOWN_GRACE_SECONDS is 20s, above Docker's 10s default;
+    # without this every `compose down` SIGKILLs a job mid-flight.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # The only service published outward. Plain HTTP: put it behind whatever
+  # reverse proxy terminates TLS. That proxy needs a long proxy_read_timeout
+  # (the ingest websocket tolerates 300s of silence) and buffering off (session
+  # audio is a Range-able stream of arbitrary length) — see web/nginx.conf,
+  # which sets both for the inner hop.
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    image: audio-pipeline-web:latest
+    container_name: audio-web
+    depends_on:
+      api: {condition: service_healthy}
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8098}:80"
+    networks: [audio-net]
+    restart: unless-stopped
+
+  # Admin CLI. Behind a profile so `up` never starts it:
+  #   make stack-cli ARGS="users create ..."
+  cli:
+    <<: *app
+    container_name: audio-cli
+    profiles: ["tools"]
+    command: ["python", "-m", "cli.main", "--help"]
+    restart: "no"
+
+  # ---- optional stores (profile: stores) ------------------------------------
+  # Off by default so an existing Postgres/MinIO can be used instead. The stack
+  # reaches them over its own bridge; the published ports are for host-run
+  # development (`make api` / `make worker`), hence loopback by default.
+
+  postgres:
+    profiles: ["stores"]
+    # pgvector, not plain postgres: the speaker/tag embeddings need it. The
+    # migrations also create pg_trgm, which ships with this image.
+    image: pgvector/pgvector:pg16
+    container_name: audio-postgres
+    environment:
+      POSTGRES_DB: ${DATABASE_NAME:?set DATABASE_NAME in deploy/.env}
+      POSTGRES_USER: ${DATABASE_USER:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?set DATABASE_PASSWORD in deploy/.env}
+    ports:
+      - "${STORE_BIND:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [audio-net]
+    restart: unless-stopped
+
+  minio:
+    profiles: ["stores"]
+    image: minio/minio
+    container_name: audio-minio
+    command: server /data --console-address ":9001"
+    environment:
+      # The app authenticates as root here, so it can create its own bucket on
+      # first boot. Split these into a scoped user if the store is shared.
+      MINIO_ROOT_USER: ${STORAGE_ACCESS_KEY:?set STORAGE_ACCESS_KEY in deploy/.env}
+      MINIO_ROOT_PASSWORD: ${STORAGE_SECRET_KEY:?set STORAGE_SECRET_KEY in deploy/.env}
+    ports:
+      - "${STORE_BIND:-127.0.0.1}:${MINIO_PORT:-9000}:9000"
+      - "${STORE_BIND:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mc ready local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [audio-net]
+    restart: unless-stopped
+
+  # ---- model sidecars (source in ../sidecars) -------------------------------
+  # Published on loopback so the host-run development flow keeps working
+  # unchanged. Set SIDECAR_BIND to expose them further.
+
+  asr-parakeet:
+    <<: *gpu
+    build:
+      context: ../sidecars/asr_parakeet
+    container_name: asr-parakeet
+    ports:
+      - "${SIDECAR_BIND:-127.0.0.1}:8033:8000"
+    volumes:
+      - asr-parakeet-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 300s
+    networks: [audio-net]
+    restart: unless-stopped
+
+  diar-pyannote:
+    <<: *gpu
+    build:
+      context: ../sidecars/diar_pyannote
+    container_name: diar-pyannote
+    ports:
+      - "${SIDECAR_BIND:-127.0.0.1}:8034:8000"
+    volumes:
+      - diar-pyannote-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      # The pyannote weights are gated; without this the container starts and
+      # then fails to load a model.
+      HF_TOKEN: ${HF_TOKEN:?set HF_TOKEN in deploy/.env — see deploy/.env.example}
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 900s
+    networks: [audio-net]
+    restart: unless-stopped
+
+  audio-tagger:
+    <<: *gpu
+    build:
+      context: ../sidecars/audio_tagger
+    container_name: audio-tagger
+    ports:
+      - "${SIDECAR_BIND:-127.0.0.1}:8035:8000"
+    volumes:
+      - audio-tagger-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 900s
+    networks: [audio-net]
+    restart: unless-stopped
+
+networks:
+  # A bridge of its own. Do not move the app onto a store's bridge: published
+  # ports are not DNAT'd for traffic arriving on the target's own bridge, so a
+  # host-IP address for that store would stop resolving.
+  audio-net:
+    driver: bridge
+
+volumes:
+  # Weights, tens of gigabytes. The *_HF_CACHE_* overrides let a deployment
+  # adopt caches that already exist under another name — set both the name and
+  # EXTERNAL=true, and the volume is then also safe from `down -v`.
+  asr-parakeet-hf-cache:
+    name: ${ASR_HF_CACHE:-audio-pipeline-asr-parakeet-hf-cache}
+    external: ${ASR_HF_CACHE_EXTERNAL:-false}
+  diar-pyannote-hf-cache:
+    name: ${DIAR_HF_CACHE:-audio-pipeline-diar-pyannote-hf-cache}
+    external: ${DIAR_HF_CACHE_EXTERNAL:-false}
+  audio-tagger-hf-cache:
+    name: ${TAGGER_HF_CACHE:-audio-pipeline-audio-tagger-hf-cache}
+    external: ${TAGGER_HF_CACHE_EXTERNAL:-false}
+  postgres-data:
+  minio-data:

@@ -1,0 +1,17 @@
+# One context serves both images (deploy/Dockerfile and deploy/web/Dockerfile),
+# so frontend/ must stay in — the web image builds dist/ from source. Only the
+# artifacts and the host-local state are excluded.
+.git
+.gitignore
+.venv
+.env
+.claude
+.pytest_cache
+.pytest-*.log
+**/__pycache__/
+*.py[oc]
+frontend/node_modules/
+frontend/dist/
+tests/
+docs/
+sidecars/
