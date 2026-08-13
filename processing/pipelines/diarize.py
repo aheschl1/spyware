@@ -1,7 +1,7 @@
 """Tier: split detected speech into per-speaker turns, with embeddings.
 
 Consumes each session's ``speech-map`` (one diarize job per session), but
-pyannote never sees the whole session: speech-spans are re-merged into
+the diarizer never sees the whole session: speech-spans are re-merged into
 *blocks* — contiguous speech regions — and one rendered clip per block goes
 to the diarization service. Silence between blocks was already excluded by
 the VAD tier and is never rendered or uploaded.
@@ -12,9 +12,9 @@ namespaced per block (``b{start}:SPEAKER_00``) and global identity is the
 clustering tier's job — fed by the per-speaker voice-prints this tier stores
 as pgvector rows (``speaker_embeddings``), queryable with distance operators.
 
-The service also returns one embedding per *turn*, computed from that turn's
-clean (non-overlapped) audio. Those power the **purity audit**
-(:func:`split_labels`): pyannote's internal clustering sometimes puts several
+The service also returns one embedding per *turn*, computed with overlapping
+speech masked out. Those power the **purity audit**
+(:func:`split_labels`): the diarizer's internal clustering sometimes puts several
 people under one label, and its per-label aggregate — a blend of their
 voices — cannot reveal that. When a label's own turn vectors form clearly
 separated groups, the label splits into sub-labels (``SPEAKER_10.0``, ``.1``)
@@ -29,7 +29,7 @@ diagnostics for threshold calibration.
 
 Besides turns, the tier publishes ``utterance`` artifacts — same-speaker
 turns merged into ASR-sized units — which are what the transcribe tier
-consumes. That makes this tier the transcription gate: pyannote's
+consumes. That makes this tier the transcription gate: the diarizer's
 segmentation hears far-field speakers the VAD misses, so gating ASR on
 anything less sensitive silences one side of a conversation. Merges refuse
 to span another speaker's interjection beyond a small crosstalk budget (the
@@ -138,7 +138,7 @@ def utterances_from_turns(
     Merging is per speaker label: block namespacing already prevents
     cross-block joins. Turns are sorted first (service order is not
     trusted); zero-length turns are dropped; overlapping same-speaker turns
-    (pyannote powerset artifacts) collapse. A merge that would exceed
+    (segmentation artifacts) collapse. A merge that would exceed
     ``max_utterance_ms`` closes at the previous turn boundary instead; a
     single turn longer than the cap is split into near-equal pieces (never a
     sliver tail).
@@ -226,13 +226,13 @@ def split_labels(
 ) -> list[str]:
     """The purity audit: a final label per turn, splitting mixed ones.
 
-    Pyannote's internal clustering can wrongly put several people under one
+    The diarizer's internal clustering can wrongly put several people under one
     label, and its per-label aggregate embedding (a blend of their voices)
     cannot reveal that. Per-turn embeddings can: each label's turn vectors
     are clustered locally (same agglomeration as the global tier, no pins),
     and when they form ≥2 well-separated groups each carrying at least
     ``split_min_clean_ms`` of clean speech, the label splits into sub-labels
-    (``SPEAKER_10.0``, ``.1``, … — a grammar pyannote's ``SPEAKER_\\d+``
+    (``SPEAKER_10.0``, ``.1``, … — a grammar the service's ``SPEAKER_\\d+``
     can't collide with), numbered by descending clean talk.
 
     Only turns with an embedding from at least ``turn_min_clean_ms`` of
@@ -396,7 +396,7 @@ class DiarizePipeline(Pipeline):
                 result = await self._diarizer.diarize(
                     clip, filename=f"{job.session_id}-{block.start_ms}.wav"
                 )
-                # The purity audit: relabel turns of any pyannote label whose
+                # The purity audit: relabel turns of any diarizer label whose
                 # own turn embeddings prove it contains several people.
                 labels = split_labels(
                     result.turns,

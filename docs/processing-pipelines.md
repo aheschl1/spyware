@@ -166,10 +166,10 @@ each tier discovers its own input):
    in the `speaker_embeddings` table (pgvector, cascade-deleted with its
    artifact row), queryable with distance operators for the clustering tier.
 
-   The service returns per-turn embeddings (clean audio only) besides its
+   The service returns per-turn embeddings (overlap masked out) besides its
    per-label aggregates, and the tier runs a **purity audit** before
-   publishing (`split_labels`): pyannote sometimes puts several people under
-   one label — its aggregate, a blend of their voices, can't reveal that,
+   publishing (`split_labels`): the diarizer sometimes puts several people
+   under one label — its aggregate, a blend of their voices, can't reveal that,
    and it would corrupt a voice-print and every transcript resolved through
    it. When a label's own turn vectors form ≥2 well-separated groups
    (`diarize_split_distance`, looser than the corpus threshold; each group ≥
@@ -205,7 +205,10 @@ each tier discovers its own input):
    is dropped with a warning (turns are the load-bearing output); a service
    without per-turn support degrades to exactly the pre-audit behavior.
    Service seam: `processing/diarizer.py` → the diar_pyannote container
-   (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-community-1.
+   (`PROCESSING_DIARIZER_BASE_URL`), BUT-FIT/diarizen-wavlm-large-s80-md-v2
+   (WavLM+Conformer segmentation) embedding with WeSpeaker ResNet34-LM — the
+   same 256-d embedder pyannote community-1 used, so the switch left the
+   vector space and the clustering thresholds untouched.
 3. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
    `utterance` artifacts with no transcribe job (anti-join on
    `processing_jobs.artifact_id`), renders each from the timeline, sends it

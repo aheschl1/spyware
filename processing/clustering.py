@@ -3,7 +3,7 @@
 Shared by two tiers at two scales: speaker-cluster runs it over the user's
 whole corpus of voice-prints (global identity), and diarize runs it over one
 label's per-turn embeddings inside a single block (the purity audit that
-splits a label pyannote wrongly gave to several people). Pure numpy — no
+splits a label the diarizer wrongly gave to several people). Pure numpy — no
 database, no I/O.
 """
 
