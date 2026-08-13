@@ -78,7 +78,7 @@ async def test_mixed_label_splits_into_sub_labels(
 
     # Voice-prints: one per final label. The sub-labels pool their own clean
     # turn vectors (never the blended aggregate); the old-style label falls
-    # back to the service aggregate and records zero clean talk.
+    # back to the service aggregate and records no clean talk at all.
     by_label = {e.metadata["speaker"]: e for e in embeddings}
     assert set(by_label) == {"b0:SPEAKER_00.0", "b0:SPEAKER_00.1", "b0:SPEAKER_01"}
     stored = {v.artifact_id: v.embedding for v in vectors}
@@ -95,7 +95,7 @@ async def test_mixed_label_splits_into_sub_labels(
 
     other = by_label["b0:SPEAKER_01"]
     assert "split_of" not in other.metadata
-    assert other.metadata["clean_talk_ms"] == 0
+    assert "clean_talk_ms" not in other.metadata
     assert list(stored[other.id]) == [0.0, 0.0, 1.0, 0.0]
 
 
@@ -127,8 +127,9 @@ async def test_split_labels_flow_into_transcripts_and_clusters(
     assert by_speaker["b0:SPEAKER_00.1"].metadata["overlap_ms"] == 0
 
     # Clustering: the two sub-label prints pass the clean-talk gate and land
-    # in different clusters (orthogonal voices); the old-style label has zero
-    # clean talk, so the gate leaves it unassigned.
+    # in different clusters (orthogonal voices); the old-style label reported
+    # no clean time, so the gate falls back to its talk_ms and it clusters
+    # too — as its own voice, orthogonal to both sub-labels.
     listing = await client.get(
         f"/v1/sessions/{session.id}/speakers", headers=account.headers
     )
@@ -138,6 +139,8 @@ async def test_split_labels_flow_into_transcripts_and_clusters(
     }
     assert set(by_label) == {"b0:SPEAKER_00.0", "b0:SPEAKER_00.1", "b0:SPEAKER_01"}
     zero, one = by_label["b0:SPEAKER_00.0"], by_label["b0:SPEAKER_00.1"]
+    other = by_label["b0:SPEAKER_01"]
     assert zero["speaker_id"] is not None and one["speaker_id"] is not None
     assert zero["speaker_id"] != one["speaker_id"]
-    assert by_label["b0:SPEAKER_01"]["speaker_id"] is None
+    assert other["speaker_id"] is not None
+    assert other["speaker_id"] not in (zero["speaker_id"], one["speaker_id"])

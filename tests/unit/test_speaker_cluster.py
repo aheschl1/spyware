@@ -78,8 +78,112 @@ def test_empty_and_single() -> None:
 
 
 def test_zero_vector_is_harmless() -> None:
+    # A zero vector sits at distance exactly 1.0 from everything.
     clusters = cluster_corpus([[0.0, 0.0], [1.0, 0.0]], {}, 0.5)
-    assert sorted(len(c) for c in clusters) in ([1, 1], [2])
+    assert sorted(len(c) for c in clusters) == [1, 1]
+
+
+def test_nan_vector_stays_singleton() -> None:
+    vectors = [
+        [1.0, 0.0, 0.0],
+        [0.99, 0.14, 0.0],
+        [float("nan"), 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.1, 0.99, 0.0],
+    ]
+    assert _sets(cluster_corpus(vectors, {}, 0.65)) == {
+        frozenset({0, 1}),
+        frozenset({2}),
+        frozenset({3, 4}),
+    }
+
+
+def test_nan_vector_follows_its_pin() -> None:
+    vectors = [[1.0, 0.0], [float("inf"), 0.0], [0.0, 1.0]]
+    clusters = _sets(cluster_corpus(vectors, {0: "X", 1: "X"}, 0.1))
+    assert frozenset({0, 1}) in clusters
+
+
+def test_all_nan_corpus() -> None:
+    vectors = [[float("nan"), 0.0], [float("nan"), 1.0]]
+    assert _sets(cluster_corpus(vectors, {}, 2.0)) == {
+        frozenset({0}),
+        frozenset({1}),
+    }
+
+
+def _naive_reference(
+    vectors: list[list[float]], pins: dict[int, str], threshold: float
+) -> list[list[int]]:
+    """The pre-NN-chain O(n³) implementation, kept as a parity oracle."""
+    import numpy as np
+
+    n = len(vectors)
+    if n == 0:
+        return []
+    matrix = np.asarray(vectors, dtype=float)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0
+    unit = matrix / norms
+    dist = np.maximum(1.0 - unit @ unit.T, 0.0)
+    np.fill_diagonal(dist, np.inf)
+    size = np.ones(n)
+    active = np.ones(n, dtype=bool)
+    members: list[list[int]] = [[i] for i in range(n)]
+    tags: list[str | None] = [None] * n
+
+    def merge(keep: int, drop: int) -> None:
+        combined = (size[keep] * dist[keep] + size[drop] * dist[drop]) / (
+            size[keep] + size[drop]
+        )
+        dist[keep, :] = combined
+        dist[:, keep] = combined
+        dist[keep, keep] = np.inf
+        dist[drop, :] = np.inf
+        dist[:, drop] = np.inf
+        size[keep] += size[drop]
+        active[drop] = False
+        members[keep].extend(members[drop])
+        if tags[keep] is None:
+            tags[keep] = tags[drop]
+
+    groups: dict[str, list[int]] = {}
+    for index in sorted(pins):
+        groups.setdefault(pins[index], []).append(index)
+    for indices in sorted(groups.values(), key=lambda ids: ids[0]):
+        tags[indices[0]] = pins[indices[0]]
+        for other in indices[1:]:
+            merge(indices[0], other)
+    representatives = [indices[0] for indices in groups.values()]
+    for i, a in enumerate(representatives):
+        for b in representatives[i + 1 :]:
+            dist[a, b] = np.inf
+            dist[b, a] = np.inf
+
+    while True:
+        flat = int(np.argmin(dist))
+        i, j = divmod(flat, n)
+        if not dist[i, j] <= threshold:
+            break
+        merge(i, j)
+    return [members[k] for k in range(n) if active[k]]
+
+
+def test_parity_with_naive_reference() -> None:
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    for trial in range(5):
+        centers = rng.normal(size=(4, 8))
+        vectors = [
+            (centers[rng.integers(4)] + rng.normal(scale=0.15, size=8)).tolist()
+            for _ in range(60)
+        ]
+        pins = {0: "A", 7: "A", 13: "B"} if trial % 2 else {}
+        for threshold in (0.3, 0.5, 0.65, 0.9):
+            ours = _sets(cluster_corpus(vectors, pins, threshold))
+            oracle = _sets(_naive_reference(vectors, pins, threshold))
+            assert ours == oracle, (trial, threshold)
 
 
 def test_deterministic() -> None:

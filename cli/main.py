@@ -401,6 +401,42 @@ async def sessions_retranscribe(session_id: UUID, yes: bool) -> None:
     )
 
 
+@sessions.command("rediarize")
+@click.argument("session_id", type=click.UUID)
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+@async_command
+async def sessions_rediarize(session_id: UUID, yes: bool) -> None:
+    """Redo a session's diarization (and its transcripts) with the current
+    diarizer.
+
+    Deletes the diarize and transcribe tiers' artifacts and job history in
+    one transaction; the worker's discovery re-runs diarization from the
+    surviving speech-map, then re-transcribes the new utterances. Pins are
+    keyed on (session, label, model) and survive. Manual transcript edits
+    are lost.
+    """
+    if not yes:
+        click.confirm(
+            f"re-diarize session {session_id}? existing turns, voice-prints "
+            "and transcripts (including manual edits) are deleted",
+            abort=True,
+        )
+    async with DatabasePipe() as pipe:
+        if await pipe.sessions.get(session_id) is None:
+            raise NotFoundError("session", str(session_id))
+        counts = {}
+        for pipeline in ("diarize", "transcribe", "transcribe-ab"):
+            counts[pipeline] = await pipe.artifacts.delete_for_pipeline(
+                session_id, pipeline
+            )
+            await pipe.jobs.delete_for_session(session_id, pipeline)
+        await pipe.jobs.delete_for_session(session_id, "speaker-cluster")
+    click.echo(
+        f"deleted {counts['diarize']} diarize and {counts['transcribe']} "
+        "transcribe artifact(s); the worker will re-diarize from the speech-map"
+    )
+
+
 # ------------------------------------------------------------------------ speakers
 
 

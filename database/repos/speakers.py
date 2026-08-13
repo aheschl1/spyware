@@ -133,7 +133,8 @@ class SpeakersRepo(BaseRepo):
                 FROM speaker_embeddings e
                 JOIN recording_sessions rs ON rs.id = e.session_id
                 LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
-                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.session_id = e.session_id
+                    AND p.speaker = e.speaker AND p.model = e.model
                 WHERE rs.user_id = %s
                 ORDER BY e.artifact_id
             """,
@@ -165,13 +166,14 @@ class SpeakersRepo(BaseRepo):
                        e.speaker_id, s.name AS speaker_name,
                        CASE WHEN s.centroid IS NULL THEN NULL
                             ELSE e.embedding <=> s.centroid END AS distance,
-                       p.artifact_id IS NOT NULL AS pinned,
+                       p.speaker_id IS NOT NULL AS pinned,
                        u.start_ms AS clip_start_ms, u.end_ms AS clip_end_ms
                 FROM speaker_embeddings e
                 JOIN recording_sessions rs ON rs.id = e.session_id
                 LEFT JOIN speakers s ON s.id = e.speaker_id
                 LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
-                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.session_id = e.session_id
+                    AND p.speaker = e.speaker AND p.model = e.model
                 LEFT JOIN LATERAL (
                     SELECT t.start_ms, t.end_ms FROM pipeline_artifacts t
                     WHERE t.session_id = e.session_id
@@ -262,15 +264,19 @@ class SpeakersRepo(BaseRepo):
 
 
     async def pin(self, artifact_id: UUID, speaker_id: UUID) -> None:
-        """Assert a voice-print's identity; every future rebuild honors it."""
+        """Assert a voice-print's identity; every future rebuild honors it.
+
+        Keyed on (session, label, model) — the address a re-diarize
+        reproduces — so pins outlive artifact republication."""
         await self._execute(
             """
-                INSERT INTO speaker_pins (artifact_id, speaker_id)
-                VALUES (%s, %s)
-                ON CONFLICT (artifact_id) DO UPDATE
+                INSERT INTO speaker_pins (session_id, speaker, model, speaker_id)
+                SELECT e.session_id, e.speaker, e.model, %s
+                FROM speaker_embeddings e WHERE e.artifact_id = %s
+                ON CONFLICT (session_id, speaker, model) DO UPDATE
                     SET speaker_id = EXCLUDED.speaker_id
             """,
-            (artifact_id, speaker_id),
+            (speaker_id, artifact_id),
         )
 
     async def reassign(
@@ -297,7 +303,8 @@ class SpeakersRepo(BaseRepo):
             """
                 DELETE FROM speaker_pins p
                 USING speaker_embeddings e
-                WHERE p.artifact_id = %s AND e.artifact_id = p.artifact_id
+                WHERE e.artifact_id = %s AND p.session_id = e.session_id
+                  AND p.speaker = e.speaker AND p.model = e.model
                   AND e.speaker_id = %s
             """,
             (artifact_id, speaker_id),
@@ -308,10 +315,10 @@ class SpeakersRepo(BaseRepo):
         manual merge survives batch rebuilds."""
         return await self._execute(
             """
-                INSERT INTO speaker_pins (artifact_id, speaker_id)
-                SELECT artifact_id, %s FROM speaker_embeddings
+                INSERT INTO speaker_pins (session_id, speaker, model, speaker_id)
+                SELECT session_id, speaker, model, %s FROM speaker_embeddings
                 WHERE speaker_id = %s
-                ON CONFLICT (artifact_id) DO UPDATE
+                ON CONFLICT (session_id, speaker, model) DO UPDATE
                     SET speaker_id = EXCLUDED.speaker_id
             """,
             (target_id, speaker_id),
@@ -350,13 +357,14 @@ class SpeakersRepo(BaseRepo):
                        coalesce((a.metadata->>'clean_talk_ms')::bigint,
                                 (a.metadata->>'talk_ms')::bigint) AS talk_ms,
                        e.embedding <=> s.centroid AS distance,
-                       p.artifact_id IS NOT NULL AS pinned,
+                       p.speaker_id IS NOT NULL AS pinned,
                        u.start_ms AS clip_start_ms, u.end_ms AS clip_end_ms
                 FROM speaker_embeddings e
                 JOIN speakers s ON s.id = e.speaker_id
                 JOIN recording_sessions rs ON rs.id = e.session_id
                 LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
-                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.session_id = e.session_id
+                    AND p.speaker = e.speaker AND p.model = e.model
                 LEFT JOIN LATERAL (
                     SELECT t.start_ms, t.end_ms FROM pipeline_artifacts t
                     WHERE t.session_id = e.session_id

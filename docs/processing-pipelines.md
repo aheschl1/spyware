@@ -205,7 +205,7 @@ each tier discovers its own input):
    is dropped with a warning (turns are the load-bearing output); a service
    without per-turn support degrades to exactly the pre-audit behavior.
    Service seam: `processing/diarizer.py` → the diar_pyannote container
-   (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-3.1.
+   (`PROCESSING_DIARIZER_BASE_URL`), pyannote/speaker-diarization-community-1.
 3. **`transcribe`** (`processing/pipelines/transcribe.py`) — discovers
    `utterance` artifacts with no transcribe job (anti-join on
    `processing_jobs.artifact_id`), renders each from the timeline, sends it

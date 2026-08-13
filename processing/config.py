@@ -83,7 +83,8 @@ class ProcessingSettings(BaseSettings):
     # label and well-separated groups become sub-labels (SPEAKER_XX.0, .1…).
     # The split threshold is looser than the corpus cluster_distance because
     # within-block recording conditions are uniform — it should only fire on
-    # clearly-bimodal labels (calibrated: same voice ≲0.6, different ~0.9).
+    # clearly-bimodal labels (community-1: in-block cross-voice pairs sit at
+    # ~0.78 median, 5th pct 0.48; observed genuine splits fire around ~0.73).
     diarize_split_distance: float = 0.7
     # A sub-cluster must carry this much clean speech to become a sub-label;
     # smaller groups fold into the nearest surviving one. Calibrated on a
@@ -141,9 +142,10 @@ class ProcessingSettings(BaseSettings):
     # this distance. Embeddings from under min_talk_ms of speech are skipped
     # as unreliable voice-prints. Both are env DEFAULTS — a cluster_params
     # row overrides them per user. Calibrated on real glasses sessions
-    # (pyannote 3.1 / wespeaker): the same voice spreads up to ~0.6 across
-    # blocks and sessions; known different voices in one conversation sat at
-    # ~0.9.
+    # (pyannote community-1, 2026-08-12 sweep): cross-voice pairs in one
+    # block sit at 0.78 median / 0.68 25th pct, and both the same-block
+    # false-merge count and the largest cluster's size accelerate sharply
+    # past 0.65 — the window is narrower than 3.1's (same ≲0.6 vs ~0.9).
     cluster_distance: float = 0.65
     cluster_min_talk_ms: int = 3_000
 

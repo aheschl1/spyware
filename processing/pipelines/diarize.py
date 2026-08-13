@@ -539,20 +539,24 @@ class DiarizePipeline(Pipeline):
         crosstalk frames never enter it — falling back to the service
         aggregate for labels with no usable turn vectors (old service, or
         all-overlapped speech: exactly the print the clean-talk gate should
-        then skip). ``clean_talk_ms`` is only written when the service
-        reported clean time at all, so on a degraded response the clustering
-        gate falls back to ``talk_ms`` instead of gating everything out.
+        then skip). ``clean_talk_ms`` is only written for labels whose turns
+        reported clean time, so a degraded or partially-degraded response
+        makes the clustering gate fall back to ``talk_ms`` per label instead
+        of gating whole speakers out.
         """
         settings = self._settings
         talk_ms: dict[str, int] = {}
         clean_talk_ms: dict[str, int] = {}
         voters: dict[str, list[Turn]] = {}
         original_label: dict[str, str] = {}
-        clean_known = any(turn.clean_ms is not None for turn in turns)
+        clean_known: dict[str, bool] = {}
         for original, turn in zip(result.turns, turns, strict=True):
             label = turn.speaker
             talk_ms[label] = talk_ms.get(label, 0) + (turn.end_ms - turn.start_ms)
             clean_talk_ms[label] = clean_talk_ms.get(label, 0) + (turn.clean_ms or 0)
+            clean_known[label] = clean_known.get(label, False) or (
+                turn.clean_ms is not None
+            )
             original_label[label] = original.speaker
             if (
                 turn.embedding is not None
@@ -591,7 +595,7 @@ class DiarizePipeline(Pipeline):
                 # little speech are noise.
                 "talk_ms": talk_ms[label],
             }
-            if clean_known:
+            if clean_known[label]:
                 metadata["clean_talk_ms"] = clean_talk_ms[label]
             if original_label[label] != label:
                 metadata["split_of"] = original_label[label]

@@ -66,23 +66,25 @@ inspector gives the real one.
 and the gap widens (4.0 ms vs 14.7 ms at n=404; 19 ms vs 605 ms at n=50k), so
 there is no crossover to branch on. Live request today: 37 ms read + 9 ms fit.
 
-**The projection is not what will break.** `cluster_corpus`
-(`processing/clustering.py`) takes `argmin` over the full n×n matrix on each of
-~n merges — O(n³), ~8× per doubling, and it runs at every session end holding a
-per-user advisory lock:
+**The projection is not what will break — and the clusterer no longer will
+either.** `cluster_corpus` (`processing/clustering.py`) is now a
+nearest-neighbour chain: average linkage over cosine is reducible, and a
+cluster is fully described by the sum of its members' unit vectors
+(`d(A,B) = 1 − (S_A·S_B)/(|A|·|B|)`), so there is no distance matrix at all —
+O(n²) time, O(n) memory, identical dendrogram. Cannot-link pins survive as
+tag checks in the distance function. Measured on merging data (40 centers,
+256-d):
 
-| n | `cluster_corpus` |
-|---:|---:|
-| 404 | 0.02 s |
-| 1,600 | 0.54 s |
-| 3,200 | 8.97 s |
-| 6,400 | 74.65 s |
+| n | old O(n³) | NN-chain |
+|---:|---:|---:|
+| 404 | 0.02 s | 0.04 s |
+| 3,200 | 8.97 s | 1.7 s |
+| 6,400 | 74.65 s | 6.8 s |
+| 12,800 | — | 37 s |
 
-At the observed ~135–200 rows/day that is weeks away, not months. The fix is
-lossless and belongs in its own change: average linkage over cosine is a
-reducible Lance–Williams linkage, so nearest-neighbour chain yields the
-identical dendrogram in O(n²) time and O(n) memory, and cannot-link infinities
-survive reducibility so the pin design carries over.
+Growth is now ~4× per doubling. At ~135–200 rows/day the next wall is years
+out, and `tests/unit/test_speaker_cluster.py` carries a parity test against
+the old implementation as an oracle.
 
 > Benchmarking note: measure this function on data that actually *merges*.
 > Random high-dimensional vectors are near-orthogonal, nothing passes the

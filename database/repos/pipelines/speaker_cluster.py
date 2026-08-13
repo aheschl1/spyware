@@ -3,6 +3,7 @@
 from database.repos.artifacts import COLUMNS as _ARTIFACT_COLUMNS
 from database.repos.base import BaseRepo
 from database.schema.artifacts import PipelineArtifact
+from database.schema.jobs import Job
 
 _A_COLUMNS = ", ".join(f"a.{column.strip()}" for column in _ARTIFACT_COLUMNS.split(","))
 
@@ -31,4 +32,26 @@ class SpeakerClusterQueries(BaseRepo):
                 LIMIT %s
             """,
             (source_pipeline, pipeline, limit),
+        )
+
+    async def superseded(self, job: Job) -> bool:
+        """True when a newer queued job exists for the same user.
+
+        The rebuild is a full-corpus idempotent recompute, so of N queued
+        jobs for one user only the newest needs to run; the rest skip
+        without taking the per-user advisory lock."""
+        return bool(
+            await self._fetch_value(
+                """
+                    SELECT EXISTS (
+                        SELECT 1 FROM processing_jobs j
+                        JOIN recording_sessions rs ON rs.id = j.session_id
+                        JOIN recording_sessions mine ON mine.id = %s
+                        WHERE j.pipeline = %s AND rs.user_id = mine.user_id
+                          AND j.status = 'queued'
+                          AND (j.created_at, j.id) > (%s, %s)
+                    )
+                """,
+                (job.session_id, job.pipeline, job.created_at, job.id),
+            )
         )

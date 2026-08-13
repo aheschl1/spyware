@@ -161,6 +161,51 @@ async def test_merge_survives_the_next_rebuild(
     assert mom["embeddings"] == 3
 
 
+async def test_pins_survive_rediarization(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    """Pins are keyed on (session, label, model), not artifact id: deleting
+    and regenerating a session's diarize artifacts must not cost curation."""
+    session = await _clustered_session(account)
+    loser, survivor = await _speakers(client, account)
+    await client.post(
+        f"/v1/speakers/{survivor['id']}/label",
+        headers=account.headers,
+        json={"name": "Mom"},
+    )
+    merged = await client.post(
+        f"/v1/speakers/{loser['id']}/merge",
+        headers=account.headers,
+        json={"into_speaker_id": survivor["id"]},
+    )
+    assert merged.status_code == 200
+
+    # Re-diarize the session: drop its jobs and artifacts and let discovery
+    # re-mint the work, embeddings regenerating under new artifact ids.
+    async with DatabasePipe() as pipe:
+        await pipe.connection.execute(
+            """
+                DELETE FROM processing_jobs
+                WHERE session_id = %s AND pipeline IN ('diarize', 'speaker-cluster')
+            """,
+            (session.id,),
+        )
+        await pipe.connection.execute(
+            "DELETE FROM pipeline_artifacts WHERE session_id = %s AND pipeline = 'diarize'",
+            (session.id,),
+        )
+    await wait_for_job(session.id, "speaker-cluster", JobStatus.SUCCEEDED)
+
+    after = await _speakers(client, account)
+    (mom,) = [s for s in after if s["name"] == "Mom"]
+    assert mom["id"] == survivor["id"]
+    assert mom["embeddings"] == 2  # the pinned pair reunited under Mom
+    members = (
+        await client.get(f"/v1/speakers/{mom['id']}/members", headers=account.headers)
+    ).json()["items"]
+    assert all(m["pinned"] for m in members)
+
+
 async def test_members_move_eject_and_unpin(
     worker: None, client: httpx.AsyncClient, account: Account
 ) -> None:
@@ -246,6 +291,50 @@ async def test_members_move_eject_and_unpin(
     body = ejected.json()
     assert body["target"]["name"] == "Guest" and body["target"]["embeddings"] == 1
     assert body["source"]["id"] == second["id"] and body["source"]["embeddings"] == 1
+
+
+async def test_superseded_cluster_job_skips(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    """Of N queued rebuild jobs for one user only the newest does work —
+    a backfill must not serialize N identical full-corpus rebuilds."""
+    from processing.pipelines.speaker_cluster import SpeakerClusterPipeline
+
+    session_a = await _clustered_session(account)
+    session_b = await _clustered_session(account)
+
+    # Queued far in the future so the live worker never claims them; explicit
+    # created_at ordering because now() is per-transaction.
+    job_ids = []
+    async with DatabasePipe() as pipe:
+        for session, offset in ((session_a, "2 seconds"), (session_b, "1 second")):
+            (diarize_map,) = await pipe.artifacts.list_for_session(
+                session.id, kind="diarize-map"
+            )
+            cur = await pipe.connection.execute(
+                f"""
+                    INSERT INTO processing_jobs
+                        (pipeline, session_id, artifact_id, run_at, created_at)
+                    VALUES ('speaker-cluster', %s, %s,
+                            now() + interval '1 hour',
+                            now() - interval '{offset}')
+                    RETURNING id
+                """,
+                (session.id, diarize_map.id),
+            )
+            row = await cur.fetchone()
+            job_ids.append(row["id"])
+
+    pipeline = SpeakerClusterPipeline()
+    await pipeline.setup()
+    async with DatabasePipe() as pipe:
+        older = await pipe.jobs.get(job_ids[0])
+        newer = await pipe.jobs.get(job_ids[1])
+    assert await pipeline.process(older) == {
+        "skipped": "superseded by newer cluster job"
+    }
+    result = await pipeline.process(newer)
+    assert "clusters" in result
 
 
 async def test_new_routes_are_scoped_to_their_owner(

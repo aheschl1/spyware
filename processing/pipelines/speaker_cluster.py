@@ -18,10 +18,11 @@ identity first, else majority previous membership preferring named clusters
 (named identities keep their id), else unnamed rows churn.
 
 Assignments live in ``speaker_embeddings.speaker_id`` and cascade away with
-diarize republication (pins too — embeddings regenerate under new artifact
-ids); the fresh diarize-map re-triggers clustering. Local labels on
-transcripts are never rewritten — global identity stays a resolve-at-read
-mapping.
+diarize republication (embeddings regenerate under new artifact ids), but
+pins are keyed on (session, label, model) and survive it; the fresh
+diarize-map re-triggers clustering and the pins reclaim their identities.
+Local labels on transcripts are never rewritten — global identity stays a
+resolve-at-read mapping.
 
 Batch runs are serialized per user by a transaction-scoped advisory lock:
 the worker job, ``cli speakers recluster`` and ``POST /v1/speakers/recluster``
@@ -235,6 +236,11 @@ class SpeakerClusterPipeline(Pipeline):
             session = await pipe.sessions.get(job.session_id)
             if session is None:
                 return {"skipped": "session vanished"}
+            # A newer queued job for this user strictly supersedes this one:
+            # skip before taking the per-user lock, so backfills do one
+            # rebuild instead of N.
+            if await SpeakerClusterQueries(pipe.connection).superseded(job):
+                return {"skipped": "superseded by newer cluster job"}
             return await rebuild_user_clusters(
                 pipe, session.user_id, self._settings
             )
