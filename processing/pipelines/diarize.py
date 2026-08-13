@@ -14,7 +14,7 @@ as pgvector rows (``speaker_embeddings``), queryable with distance operators.
 
 The service also returns one embedding per *turn*, computed from that turn's
 clean (non-overlapped) audio. Those power the **purity audit**
-(:func:`split_labels`): pyannote's internal clustering sometimes puts several
+(:func:`split_labels`): the diarizer's internal clustering sometimes puts several
 people under one label, and its per-label aggregate — a blend of their
 voices — cannot reveal that. When a label's own turn vectors form clearly
 separated groups, the label splits into sub-labels (``SPEAKER_10.0``, ``.1``)
@@ -396,7 +396,7 @@ class DiarizePipeline(Pipeline):
                 result = await self._diarizer.diarize(
                     clip, filename=f"{job.session_id}-{block.start_ms}.wav"
                 )
-                # The purity audit: relabel turns of any pyannote label whose
+                # The purity audit: relabel turns of any diarizer label whose
                 # own turn embeddings prove it contains several people.
                 labels = split_labels(
                     result.turns,

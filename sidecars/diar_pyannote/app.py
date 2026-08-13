@@ -1,9 +1,9 @@
-"""Speaker-diarization server for pyannote/speaker-diarization-community-1.
+"""Speaker-diarization server for DiariZen (WavLM + Conformer segmentation).
 
-The owned serving layer for the audio-pipeline's diarize tier: pyannote does
-the inference, this file speaks a small JSON contract so the tier (or any
-HTTP client) can be pointed at a different diarizer later without code
-changes.
+The owned serving layer for the audio-pipeline's diarize tier. DiariZen does
+the segmentation and clustering; this file speaks a small JSON contract so the
+tier (or any HTTP client) can be pointed at a different diarizer later without
+code changes.
 
     POST /v1/audio/diarizations   multipart file ->
         {"turns": [{"start_ms", "end_ms", "speaker",
@@ -11,27 +11,28 @@ changes.
                     "clean_ms": 2400,         # non-overlapped time
                     "embedding": [floats] | null}, ...],
          "embeddings": {"SPEAKER_00": [floats], ...},
-         "model": "..."}
+         "model": "...", "embedding_model": "..."}
     GET  /v1/models               the loaded model id
     GET  /health                  503 while the model is still loading
 
 Two kinds of embeddings, deliberately:
 
-- ``embeddings`` (per speaker label) are the pipeline's own aggregates —
-  averaged over every frame pyannote assigned to that label, overlap
-  included. Kept for backward compatibility and as the caller's fallback
-  when a label has no usable per-turn vectors.
-- Each turn's ``embedding`` is computed here from that turn's audio alone,
-  with overlapping-speech regions excised first (pyannote's per-label
-  aggregate cannot reveal when a label wrongly contains several people —
-  per-turn vectors let the caller audit label purity and exclude crosstalk
-  from voice-prints). Turns with under ``EMBED_MIN_CLEAN_MS`` (env, default
-  1000) of clean audio embed unreliably and get ``null``.
+- Each turn's ``embedding`` is computed from that turn's audio with
+  overlapping-speech regions masked out. Per-turn vectors let the caller audit
+  label purity (a merged label's blended aggregate cannot reveal that it holds
+  several people) and keep crosstalk out of voice-prints. Turns with under
+  ``EMBED_MIN_CLEAN_MS`` (env, default 1000) of clean audio embed unreliably
+  and get ``null``.
+- ``embeddings`` (per speaker label) is only a fallback, computed for labels
+  that produced no usable per-turn vector. It embeds the label's audio
+  unmasked, mirroring pyannote's own too-little-clean-speech behaviour.
 
-``overlap_ms``/``clean_ms`` are pure diarization arithmetic and are always
-present; ``embedding`` requires the pipeline's bundled embedding model
-(feature-detected — absent support degrades to ``null``). Global clustering
-across blocks/sessions is deliberately NOT done here.
+Overlap is excluded by masking samples, not by splicing the clean parts
+together: the embedder drops masked frames after computing filterbanks, so no
+seam discontinuities reach the features.
+
+DiariZen returns a bare Annotation, so embedding is owned here rather than
+borrowed from pipeline internals.
 
 The model loads in a background thread so the port binds immediately and the
 compose healthcheck gates readiness. Inference is serialized with a lock: one
@@ -48,45 +49,72 @@ import threading
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-MODEL_ID = os.environ.get("DIAR_MODEL", "pyannote/speaker-diarization-community-1")
+MODEL_ID = os.environ.get("DIAR_MODEL", "BUT-FIT/diarizen-wavlm-large-s80-md-v2")
+# The embedder for the vectors this service exports. DiariZen hardcodes this
+# same model for its own internal clustering, so overriding this changes the
+# exported voice-prints only — never how DiariZen assigns labels. The default
+# keeps both in one 256-d space, the same one community-1 used, so the tier's
+# clustering thresholds carry over.
+EMBED_MODEL = os.environ.get("EMBED_MODEL", "pyannote/wespeaker-voxceleb-resnet34-LM")
 # Turns with less clean (non-overlapped) audio than this get no per-turn
 # embedding: the vectors degrade sharply on very short crops.
 EMBED_MIN_CLEAN_MS = int(os.environ.get("EMBED_MIN_CLEAN_MS", "1000"))
+# Segmentation/embedding batch. 0 keeps the model card's own value.
+BATCH_SIZE = int(os.environ.get("DIAR_BATCH_SIZE", "8"))
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("diar-pyannote")
+logger = logging.getLogger("diar")
 
-app = FastAPI(title="diar-pyannote")
+app = FastAPI(title="diar")
 
 _pipeline = None
+_embedding = None
+_audio = None
 _load_error: str | None = None
 _gpu_lock = threading.Lock()
 
 
 def _load_model() -> None:
-    global _pipeline, _load_error
+    global _pipeline, _embedding, _audio, _load_error
     try:
         token = os.environ.get("HF_TOKEN")
         if not token:
-            raise RuntimeError("HF_TOKEN is not set (pyannote weights are gated)")
-        logger.info("loading %s ...", MODEL_ID)
+            raise RuntimeError("HF_TOKEN is not set (the embedding weights are gated)")
         import torch
-        from pyannote.audio import Pipeline
-
-        pipeline = Pipeline.from_pretrained(MODEL_ID, token=token)
-        if pipeline is None:
-            raise RuntimeError(
-                "Pipeline.from_pretrained returned None — usually the model "
-                "conditions were not accepted on Hugging Face"
-            )
-        pipeline.to(torch.device("cuda"))
-        _pipeline = pipeline
-        logger.info(
-            "model ready (pipeline=%s, per_turn_embeddings=%s)",
-            type(pipeline).__name__,
-            getattr(pipeline, "_embedding", None) is not None
-            and getattr(pipeline, "_audio", None) is not None,
+        from diarizen.pipelines.inference import DiariZenPipeline
+        from huggingface_hub import hf_hub_download
+        from pyannote.audio import Audio
+        from pyannote.audio.pipelines.speaker_verification import (
+            PretrainedSpeakerEmbedding,
         )
+
+        device = torch.device("cuda")
+
+        logger.info("loading %s ...", MODEL_ID)
+        pipeline = DiariZenPipeline.from_pretrained(MODEL_ID)
+        if pipeline is None:
+            raise RuntimeError("DiariZenPipeline.from_pretrained returned None")
+        if hasattr(pipeline, "to"):
+            pipeline.to(device)
+        if BATCH_SIZE:
+            # The model card ships batch_size 32, which peaks ~14 GB on a
+            # 10-minute block — too much for a 30-minute one on a shared GPU.
+            pipeline.segmentation_batch_size = BATCH_SIZE
+            pipeline.embedding_batch_size = BATCH_SIZE
+
+        logger.info("loading %s ...", EMBED_MODEL)
+        # Resolved to a local file first, exactly as DiariZen does for its own
+        # copy: handed a repo id, the vendored pyannote 3.x fork would call
+        # hf_hub_download(use_auth_token=...), a kwarg current huggingface_hub
+        # has removed. The download itself authenticates from HF_TOKEN in the
+        # environment.
+        weights = hf_hub_download(repo_id=EMBED_MODEL, filename="pytorch_model.bin")
+        embedding = PretrainedSpeakerEmbedding(weights, device=device)
+
+        _pipeline = pipeline
+        _embedding = embedding
+        _audio = Audio(sample_rate=embedding.sample_rate, mono="downmix")
+        logger.info("model ready (pipeline=%s)", type(pipeline).__name__)
     except Exception as exc:  # surfaced via /health; the container stays up
         _load_error = f"{type(exc).__name__}: {exc}"
         logger.exception("model load failed")
@@ -100,17 +128,13 @@ def _startup() -> None:
 @app.get("/health")
 def health() -> JSONResponse:
     if _pipeline is not None:
-        # per_turn_embeddings=False means the purity audit upstream is
-        # silently disabled — surfaced here so it is observable.
         return JSONResponse(
             {
                 "status": "ok",
                 "model": MODEL_ID,
+                "embedding_model": EMBED_MODEL,
                 "pipeline_class": type(_pipeline).__name__,
-                "per_turn_embeddings": (
-                    getattr(_pipeline, "_embedding", None) is not None
-                    and getattr(_pipeline, "_audio", None) is not None
-                ),
+                "per_turn_embeddings": _embedding is not None and _audio is not None,
             }
         )
     body = {"status": "loading" if _load_error is None else "failed"}
@@ -124,57 +148,130 @@ def models() -> dict:
     return {"object": "list", "data": [{"id": MODEL_ID, "object": "model"}]}
 
 
-def _turn_embedding(path: str, clean_parts, duration_s: float):
-    """Embed one turn's clean (non-overlapped) audio; None when unusable.
+def _crop(path: str, segment, duration_s: float):
+    """The segment's waveform, clamped to the file; None when empty.
 
-    Crops are clamped to the file duration — pyannote turn boundaries can
-    overrun the audio by a frame, and Audio.crop raises past the end.
+    Turn boundaries can overrun the audio by a frame, and Audio.crop raises
+    past the end.
     """
+    from pyannote.core import Segment
+
+    clamped = Segment(max(segment.start, 0.0), min(segment.end, duration_s))
+    if clamped.duration <= 0:
+        return None, None
+    waveform, sample_rate = _audio.crop(path, clamped)
+    return waveform, (clamped, sample_rate)
+
+
+def _vector(waveform, masks=None):
+    """Run the embedder, returning a plain float list or None if not finite."""
     import numpy
+
+    values = _embedding(waveform.unsqueeze(0), masks=masks)[0]
+    if not bool(numpy.isfinite(values).all()):
+        return None
+    return [float(value) for value in values]
+
+
+def _turn_embedding(path: str, segment, clean_parts, duration_s: float):
+    """Embed one turn with overlapped speech masked out; None when unusable."""
     import torch
     from pyannote.core import Segment
 
-    embedding_model = getattr(_pipeline, "_embedding", None)
-    audio = getattr(_pipeline, "_audio", None)
-    if embedding_model is None or audio is None:
+    waveform, meta = _crop(path, segment, duration_s)
+    if waveform is None:
         return None
-    waveforms = []
+    clamped, sample_rate = meta
+
+    mask = torch.zeros(waveform.shape[1])
     for part in clean_parts:
-        clamped = Segment(max(part.start, 0.0), min(part.end, duration_s))
-        if clamped.duration <= 0:
+        kept = Segment(
+            max(part.start, clamped.start), min(part.end, clamped.end)
+        )
+        if kept.duration <= 0:
             continue
-        waveforms.append(audio.crop(path, clamped)[0])
-    if not waveforms:
+        start = int(round((kept.start - clamped.start) * sample_rate))
+        end = int(round((kept.end - clamped.start) * sample_rate))
+        mask[start:end] = 1.0
+    if not bool(mask.any()):
         return None
-    vector = embedding_model(torch.cat(waveforms, dim=1).unsqueeze(0))[0]
-    if not bool(numpy.isfinite(vector).all()):
+    return _vector(waveform, masks=mask.unsqueeze(0))
+
+
+def _pool(vectors, weights):
+    """Weighted mean of unit-normalized vectors, re-normalized; None if empty."""
+    import numpy
+
+    if not vectors:
         return None
-    return [float(value) for value in vector]
+    matrix = numpy.asarray(vectors, dtype=float)
+    norms = numpy.linalg.norm(matrix, axis=1, keepdims=True)
+    norms[norms == 0.0] = 1.0
+    pooled = ((matrix / norms) * numpy.asarray(weights, dtype=float)[:, None]).sum(
+        axis=0
+    )
+    length = float(numpy.linalg.norm(pooled))
+    if length == 0.0:
+        return None
+    return [float(value) for value in pooled / length]
+
+
+def _label_embedding(path: str, segments, duration_s: float):
+    """Duration-weighted pooled embedding over a label's unmasked audio.
+
+    For labels whose turns were all too short or too overlapped to embed
+    cleanly, mirroring pyannote's use-the-whole-speech behaviour.
+    """
+    # Unlike turns, these segments face no clean-audio floor, and the embedder
+    # errors on a crop below its minimum.
+    min_samples = getattr(_embedding, "min_num_samples", 0) or 0
+
+    vectors, weights = [], []
+    for segment in segments:
+        waveform, meta = _crop(path, segment, duration_s)
+        if waveform is None or waveform.shape[1] < min_samples:
+            continue
+        values = _vector(waveform)
+        if values is None:
+            continue
+        vectors.append(values)
+        weights.append(max(meta[0].duration, 1e-6))
+    return _pool(vectors, weights)
 
 
 def _diarize_file(path: str) -> dict:
     from pyannote.core import Timeline
 
     with _gpu_lock:
-        # pyannote.audio 4.x always computes per-speaker embeddings.
-        output = _pipeline(path)
-        diarization = output.speaker_diarization
-        embeddings = output.speaker_embeddings
-
+        diarization = _pipeline(path)
+        # DiariZen labels speakers with bare integers; the tier's contract (and
+        # the purity audit's `SPEAKER_00.1` sub-label grammar, which a bare `0`
+        # would make ambiguous) expects pyannote's SPEAKER_XX. labels() is
+        # sorted, so the mapping is deterministic.
+        diarization = diarization.rename_labels(
+            {label: f"SPEAKER_{index:02d}"
+             for index, label in enumerate(diarization.labels())}
+        )
         overlap = diarization.get_overlap()
-        audio = getattr(_pipeline, "_audio", None)
-        duration_s = audio.get_duration(path) if audio is not None else float("inf")
+        duration_s = _audio.get_duration(path)
 
         turns = []
+        segments_by_label: dict[str, list] = {}
+        clean_by_label: dict[str, tuple[list, list]] = {}
         for segment, _, label in diarization.itertracks(yield_label=True):
             clean_parts = Timeline([segment]).extrude(overlap)
             clean_ms = int(round(sum(part.duration for part in clean_parts) * 1000))
             turn_ms = int(round(segment.duration * 1000))
             embedding = (
-                _turn_embedding(path, clean_parts, duration_s)
+                _turn_embedding(path, segment, clean_parts, duration_s)
                 if clean_ms >= EMBED_MIN_CLEAN_MS
                 else None
             )
+            segments_by_label.setdefault(label, []).append(segment)
+            vectors, weights = clean_by_label.setdefault(label, ([], []))
+            if embedding is not None:
+                vectors.append(embedding)
+                weights.append(max(clean_ms, 1))
             turns.append(
                 {
                     "start_ms": int(segment.start * 1000),
@@ -186,16 +283,24 @@ def _diarize_file(path: str) -> dict:
                 }
             )
 
-    # Embedding matrix rows follow diarization.labels() order.
-    by_speaker = (
-        {
-            label: [float(value) for value in embeddings[index]]
-            for index, label in enumerate(diarization.labels())
-        }
-        if embeddings is not None
-        else {}
-    )
-    return {"turns": turns, "embeddings": by_speaker, "model": MODEL_ID}
+        # Always present, so the caller's fallback never depends on its own
+        # clean-audio gate matching EMBED_MIN_CLEAN_MS. Pooling the turn
+        # vectors is free; only labels with none of them cost extra passes.
+        by_speaker = {}
+        for label, segments in segments_by_label.items():
+            vectors, weights = clean_by_label[label]
+            vector = _pool(vectors, weights) or _label_embedding(
+                path, segments, duration_s
+            )
+            if vector is not None:
+                by_speaker[label] = vector
+
+    return {
+        "turns": turns,
+        "embeddings": by_speaker,
+        "model": MODEL_ID,
+        "embedding_model": EMBED_MODEL,
+    }
 
 
 @app.post("/v1/audio/diarizations")

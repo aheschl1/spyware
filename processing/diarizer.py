@@ -7,10 +7,10 @@ container implements it; anything else that speaks the same JSON can be
 swapped in via ``PROCESSING_DIARIZER_BASE_URL``.
 
 Turns may additionally carry ``overlap_ms``/``clean_ms`` (time shared with /
-free of other speakers) and a per-turn ``embedding`` computed on the turn's
-clean audio only. All three are optional — an older or degraded service
+free of other speakers) and a per-turn ``embedding`` computed with overlapping
+speech masked out. All three are optional — an older or degraded service
 omits them and the tier behaves exactly as before per-turn support existed.
-Per-turn vectors are what let the tier audit a label's purity (pyannote can
+Per-turn vectors are what let the tier audit a label's purity (the diarizer can
 wrongly put several people under one label; its per-label aggregate cannot
 reveal that) and build voice-prints free of crosstalk frames.
 """
@@ -122,7 +122,7 @@ def parse_response(body: Any) -> DiarizationResult:
         raise DiarizerError(f"malformed embeddings in diarizer response: {raw_embeddings!r}")
     embeddings: dict[str, list[float]] = {}
     for speaker, vector in raw_embeddings.items():
-        # A malformed vector (pyannote can emit NaN-laden embeddings for a
+        # A malformed vector (the diarizer can emit NaN-laden embeddings for a
         # speaker with almost no clean speech) is not worth retrying to
         # death over: the turns are the load-bearing output — this tier
         # gates transcription — so drop just that speaker's embedding.
