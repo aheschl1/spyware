@@ -85,10 +85,8 @@ class ProcessingSettings(BaseSettings):
     # within-block recording conditions are uniform — it should only fire on
     # clearly-bimodal labels (community-1: in-block cross-voice pairs sit at
     # ~0.78 median, 5th pct 0.48; observed genuine splits fire around ~0.73).
-    # Carried over unchanged to DiariZen: the embedder (and so the geometry) is
-    # the same, but the numbers above were measured under community-1's
-    # segmentation and want a re-sweep. Under community-1 this fired on 33% of
-    # labels (112/342 prints) — that rate is the signal to watch.
+    # Carried over to DiariZen unchanged (same embedder, same geometry), but
+    # measured under community-1's segmentation — wants a re-sweep.
     diarize_split_distance: float = 0.7
     # A sub-cluster must carry this much clean speech to become a sub-label;
     # smaller groups fold into the nearest surviving one. Calibrated on a
@@ -150,9 +148,8 @@ class ProcessingSettings(BaseSettings):
     # block sit at 0.78 median / 0.68 25th pct, and both the same-block
     # false-merge count and the largest cluster's size accelerate sharply
     # past 0.65 — the window is narrower than 3.1's (same ≲0.6 vs ~0.9).
-    # Unchanged across the DiariZen switch (same embedder, same 256-d space).
-    # Note DiariZen's own internal AHC cuts at 0.7, so 0.65 may be tighter than
-    # it needs to be — re-sweep once there is turn-level ground truth.
+    # Unchanged across the DiariZen switch (same embedder); DiariZen's own AHC
+    # cuts at 0.7, so re-sweep once there is turn-level ground truth.
     cluster_distance: float = 0.65
     cluster_min_talk_ms: int = 3_000
 

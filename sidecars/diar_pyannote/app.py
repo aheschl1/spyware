@@ -15,24 +15,10 @@ code changes.
     GET  /v1/models               the loaded model id
     GET  /health                  503 while the model is still loading
 
-Two kinds of embeddings, deliberately:
-
-- Each turn's ``embedding`` is computed from that turn's audio with
-  overlapping-speech regions masked out. Per-turn vectors let the caller audit
-  label purity (a merged label's blended aggregate cannot reveal that it holds
-  several people) and keep crosstalk out of voice-prints. Turns with under
-  ``EMBED_MIN_CLEAN_MS`` (env, default 1000) of clean audio embed unreliably
-  and get ``null``.
-- ``embeddings`` (per speaker label) is only a fallback, computed for labels
-  that produced no usable per-turn vector. It embeds the label's audio
-  unmasked, mirroring pyannote's own too-little-clean-speech behaviour.
-
-Overlap is excluded by masking samples, not by splicing the clean parts
-together: the embedder drops masked frames after computing filterbanks, so no
-seam discontinuities reach the features.
-
-DiariZen returns a bare Annotation, so embedding is owned here rather than
-borrowed from pipeline internals.
+Per-turn ``embedding`` is computed with overlapping speech masked out (turns
+under ``EMBED_MIN_CLEAN_MS`` of clean audio get ``null``); per-label
+``embeddings`` is a fallback for labels with no usable per-turn vector,
+embedded unmasked. Rationale in README.md.
 
 The model loads in a background thread so the port binds immediately and the
 compose healthcheck gates readiness. Inference is serialized with a lock: one
@@ -50,11 +36,8 @@ from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
 MODEL_ID = os.environ.get("DIAR_MODEL", "BUT-FIT/diarizen-wavlm-large-s80-md-v2")
-# The embedder for the vectors this service exports. DiariZen hardcodes this
-# same model for its own internal clustering, so overriding this changes the
-# exported voice-prints only — never how DiariZen assigns labels. The default
-# keeps both in one 256-d space, the same one community-1 used, so the tier's
-# clustering thresholds carry over.
+# The embedder for the vectors this service exports. Changing it changes the
+# vector space, invalidating stored voice-prints and clustering thresholds.
 EMBED_MODEL = os.environ.get("EMBED_MODEL", "pyannote/wespeaker-voxceleb-resnet34-LM")
 # Turns with less clean (non-overlapped) audio than this get no per-turn
 # embedding: the vectors degrade sharply on very short crops.
@@ -97,23 +80,21 @@ def _load_model() -> None:
         if hasattr(pipeline, "to"):
             pipeline.to(device)
         if BATCH_SIZE:
-            # The model card ships batch_size 32, which peaks ~14 GB on a
-            # 10-minute block — too much for a 30-minute one on a shared GPU.
+            # The model card's 32 peaks ~14 GB and grows with block length.
             pipeline.segmentation_batch_size = BATCH_SIZE
             pipeline.embedding_batch_size = BATCH_SIZE
 
         logger.info("loading %s ...", EMBED_MODEL)
-        # Resolved to a local file first, exactly as DiariZen does for its own
-        # copy: handed a repo id, the vendored pyannote 3.x fork would call
-        # hf_hub_download(use_auth_token=...), a kwarg current huggingface_hub
-        # has removed. The download itself authenticates from HF_TOKEN in the
-        # environment.
+        # Resolved to a local file first: handed a repo id, the vendored
+        # pyannote fork calls hf_hub_download(use_auth_token=...), a kwarg
+        # current huggingface_hub has removed.
         weights = hf_hub_download(repo_id=EMBED_MODEL, filename="pytorch_model.bin")
         embedding = PretrainedSpeakerEmbedding(weights, device=device)
 
-        _pipeline = pipeline
         _embedding = embedding
         _audio = Audio(sample_rate=embedding.sample_rate, mono="downmix")
+        # Last: /health and the request path gate readiness on _pipeline.
+        _pipeline = pipeline
         logger.info("model ready (pipeline=%s)", type(pipeline).__name__)
     except Exception as exc:  # surfaced via /health; the container stays up
         _load_error = f"{type(exc).__name__}: {exc}"
@@ -149,11 +130,8 @@ def models() -> dict:
 
 
 def _crop(path: str, segment, duration_s: float):
-    """The segment's waveform, clamped to the file; None when empty.
-
-    Turn boundaries can overrun the audio by a frame, and Audio.crop raises
-    past the end.
-    """
+    """The segment's waveform clamped to the file (turn boundaries can overrun
+    it by a frame, and Audio.crop raises past the end); None when empty."""
     from pyannote.core import Segment
 
     clamped = Segment(max(segment.start, 0.0), min(segment.end, duration_s))
@@ -217,13 +195,9 @@ def _pool(vectors, weights):
 
 
 def _label_embedding(path: str, segments, duration_s: float):
-    """Duration-weighted pooled embedding over a label's unmasked audio.
-
-    For labels whose turns were all too short or too overlapped to embed
-    cleanly, mirroring pyannote's use-the-whole-speech behaviour.
-    """
-    # Unlike turns, these segments face no clean-audio floor, and the embedder
-    # errors on a crop below its minimum.
+    """Duration-weighted pooled embedding over a label's unmasked audio; the
+    fallback for labels with no usable per-turn vector."""
+    # No clean-audio floor here, and the embedder errors on too-short crops.
     min_samples = getattr(_embedding, "min_num_samples", 0) or 0
 
     vectors, weights = [], []
@@ -246,11 +220,9 @@ def _diarize_file(path: str) -> dict:
         try:
             diarization = _pipeline(path)
         except ValueError as exc:
-            # A block whose segmentation finds no active speaker anywhere
-            # leaves every chunk marked inactive, and reconstruct() sizes an
-            # array with max(hard_clusters) + 1 == -1. Silence is a normal
-            # input here (the VAD gate upstream is deliberately high-recall),
-            # so it answers "no speakers", not a retryable failure.
+            # An all-silent block makes reconstruct() size an array with
+            # max(hard_clusters) + 1 == -1. The upstream VAD gate is
+            # high-recall, so silence is an answer, not a failure.
             if "negative dimensions" not in str(exc):
                 raise
             logger.warning("no speakers detected; returning an empty diarization")
@@ -260,10 +232,9 @@ def _diarize_file(path: str) -> dict:
                 "model": MODEL_ID,
                 "embedding_model": EMBED_MODEL,
             }
-        # DiariZen labels speakers with bare integers; the tier's contract (and
-        # the purity audit's `SPEAKER_00.1` sub-label grammar, which a bare `0`
-        # would make ambiguous) expects pyannote's SPEAKER_XX. labels() is
-        # sorted, so the mapping is deterministic.
+        # DiariZen labels are bare integers; the contract and the purity
+        # audit's SPEAKER_XX.N sub-label grammar expect SPEAKER_XX.
+        # labels() is sorted, so the mapping is deterministic.
         diarization = diarization.rename_labels(
             {label: f"SPEAKER_{index:02d}"
              for index, label in enumerate(diarization.labels())}
@@ -300,8 +271,7 @@ def _diarize_file(path: str) -> dict:
             )
 
         # Always present, so the caller's fallback never depends on its own
-        # clean-audio gate matching EMBED_MIN_CLEAN_MS. Pooling the turn
-        # vectors is free; only labels with none of them cost extra passes.
+        # clean-audio gate matching EMBED_MIN_CLEAN_MS.
         by_speaker = {}
         for label, segments in segments_by_label.items():
             vectors, weights = clean_by_label[label]

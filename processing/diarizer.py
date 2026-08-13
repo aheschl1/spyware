@@ -38,7 +38,7 @@ class Turn:
     speaker: str  # label local to this one request
     overlap_ms: int = 0  # time shared with other speakers' turns
     clean_ms: int | None = None  # non-overlapped time; None = service can't say
-    embedding: tuple[float, ...] | None = None  # from clean audio only
+    embedding: tuple[float, ...] | None = None  # overlap masked out
 
 
 @dataclass(frozen=True, slots=True)
