@@ -104,8 +104,26 @@ Nothing below is needed today; the triggers are latency, not dates.
   are full-corpus scans; ANN accelerates k-NN, and the only k-NN here
   (`SpeakersRepo.similar`) scans 74 rows.
 
-Rendering is not on the ladder: Plotly's `scattergl` is WebGL and handles 100k+
-points, which is also why the tab is worth its ~535 kB gzipped chunk (lazily
-imported, so it downloads only when the tab is opened) — zoom/pan, box and
-lasso select, hover, and legend isolation all come with it rather than being
-hand-rolled.
+## Views
+
+Three components are always computed (`eigh` returns them regardless), shown as
+three orthogonal 2-D pairs — PC1·PC2, PC1·PC3, PC2·PC3 — plus an orbitable 3-D
+scene. The explained-variance figure is derived from the components currently on
+screen, so switching views changes it; PC2·PC3 is ~8.7% where PC1·PC2 is ~15.3%.
+
+Both modes preserve equal units, since PCA axes are commensurate: 2-D via
+`scaleanchor`, 3-D via `aspectmode: "data"`. (`"cube"` would force a cube box and
+stretch PC3, overstating separation along it.)
+
+Rendering is not on the scaling ladder: `scattergl` is WebGL and handles 100k+
+points, and zoom/pan, box and lasso select, hover and legend isolation all come
+with Plotly rather than being hand-rolled.
+
+`src/plotlyBundle.ts` is a custom bundle — `plotly.js/lib/core` plus only
+`scattergl` and `scatter3d` — because the prebuilt dists are all-or-nothing: the
+gl2d one has no `scatter3d`, and the full dist carries traces nothing renders.
+It costs ~671 kB gzipped, dynamically imported so it downloads only when the tab
+is opened. Those `lib/*` entry points are CommonJS and reference Node's
+`global`, unlike the dists, which is why `vite.config.ts` defines
+`global: "globalThis"` — without it the tab fails at runtime while the build
+still succeeds.

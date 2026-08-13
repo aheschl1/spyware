@@ -12,7 +12,7 @@
   "dependencies": {
     "@types/react-plotly.js": "^2.6.4",
     "openapi-fetch": "^0.13.4",
-    "plotly.js-gl2d-dist-min": "^3.7.0",
+    "plotly.js": "^3.7.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-plotly.js": "^4.1.0"
