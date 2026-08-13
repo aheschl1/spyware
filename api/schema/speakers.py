@@ -5,7 +5,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from database.schema.speakers import SpeakerMember, SpeakerSummary, SpeakerTranscript
+from database.schema.speakers import (
+    ProjectionPoint,
+    SpeakerMember,
+    SpeakerSummary,
+    SpeakerTranscript,
+)
 
 
 class SpeakerRead(BaseModel):
@@ -253,3 +258,109 @@ class SessionSpeakerRead(BaseModel):
         description="Block-local diarization labels resolved to this voice."
     )
     talk_ms: int = Field(description="Total speech attributed to this voice, ms.")
+
+
+class ProjectionModelRead(BaseModel):
+    """An embedding model present in the corpus, and how much of it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    embeddings: int
+
+
+class ProjectionPointRead(BaseModel):
+    """One voice-print placed in the PCA basis.
+
+    ``distance`` is the cosine distance to the cluster centroid in the full
+    embedding space — deliberately *not* the on-screen distance, which is a
+    lossy shadow of it (see ``explained_variance_ratio``)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifact_id: UUID
+    session_id: UUID
+    speaker: str = Field(description="Block-local diarization label, provenance.")
+    coords: tuple[float, float, float] = Field(description="PC1, PC2, PC3.")
+    speaker_id: UUID | None = Field(None, description="Cluster; null = unassigned.")
+    name: str | None = None
+    distance: float | None = Field(
+        None, description="Cosine distance to the cluster centroid, full space."
+    )
+    talk_ms: int | None = None
+    pinned: bool
+    split_of: str | None = Field(
+        None, description="Original label, when the purity audit split it."
+    )
+    start_ms: int | None = Field(None, description="The diarization block's span.")
+    end_ms: int | None = None
+    started_at: datetime
+    session_label: str | None = None
+    clip_start_ms: int | None = Field(
+        None, description="The voice's cleanest utterance in the block."
+    )
+    clip_end_ms: int | None = None
+
+    @classmethod
+    def from_model(
+        cls, point: ProjectionPoint, coords: tuple[float, float, float]
+    ) -> "ProjectionPointRead":
+        return cls(
+            artifact_id=point.artifact_id,
+            session_id=point.session_id,
+            speaker=point.speaker,
+            coords=coords,
+            speaker_id=point.speaker_id,
+            name=point.speaker_name,
+            distance=point.distance,
+            talk_ms=point.talk_ms,
+            pinned=point.pinned,
+            split_of=point.split_of,
+            start_ms=point.start_ms,
+            end_ms=point.end_ms,
+            started_at=point.started_at,
+            session_label=point.session_label,
+            clip_start_ms=point.clip_start_ms,
+            clip_end_ms=point.clip_end_ms,
+        )
+
+
+class ProjectionClusterRead(BaseModel):
+    """A cluster's marker: the mean of its members' projected coordinates.
+
+    Projection is affine, so this *is* the projected centroid — computed from
+    the coordinates already returned, and undefined (absent) for a named
+    cluster that currently has no members."""
+
+    model_config = ConfigDict(frozen=True)
+
+    speaker_id: UUID
+    name: str | None = None
+    embeddings: int = Field(description="Members contributing to this marker.")
+    coords: tuple[float, float, float]
+
+
+class SpeakerProjectionRead(BaseModel):
+    """One embedding model's voice-prints in a PCA basis, fitted per request.
+
+    The basis is fitted on the caller's whole ``(user, model)`` corpus and the
+    filters only subset the output, so a point keeps its coordinates when the
+    session filter changes. ``basis_id`` moves exactly when the basis does — a
+    viewer holds its pan/zoom while it is unchanged.
+
+    Models are never mixed: their vectors live in different spaces."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str | None = Field(None, description="Null when you have no voice-prints.")
+    available_models: list[ProjectionModelRead]
+    basis_id: str
+    fit_points: int = Field(description="Voice-prints the basis was fitted on.")
+    returned: int
+    truncated: bool = Field(description="Whether ``limit`` dropped points.")
+    explained_variance_ratio: tuple[float, float, float] = Field(
+        description="Share of total variance per component. Two components "
+        "out of 256 dimensions typically capture only 10-30%."
+    )
+    points: list[ProjectionPointRead]
+    clusters: list[ProjectionClusterRead]

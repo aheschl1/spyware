@@ -85,6 +85,41 @@ class SpeakerMember(BaseModel):
     clip_end_ms: int | None = None
 
 
+class ProjectionPoint(BaseModel):
+    """One voice-print as the speaker map consumes it: the vector to fit on,
+    plus everything the inspector needs without a second request."""
+
+    model_config = ConfigDict(frozen=True)
+
+    artifact_id: UUID
+    session_id: UUID
+    speaker: str  # block-local label
+    embedding: tuple[float, ...]
+    started_at: datetime  # the session's start
+    session_label: str | None = None
+    start_ms: int | None = None  # the diarization block's span
+    end_ms: int | None = None
+    talk_ms: int | None = None
+    split_of: str | None = None  # set when the purity audit split the label
+    speaker_id: UUID | None = None
+    speaker_name: str | None = None
+    distance: float | None = None  # to the centroid, in the full vector space
+    pinned: bool = False
+    clip_start_ms: int | None = None  # the voice's cleanest utterance
+    clip_end_ms: int | None = None
+
+    _parse_embedding = field_validator("embedding", mode="before")(_parse_vector)
+
+
+class EmbeddingModelCount(BaseModel):
+    """One embedding model present in a user's corpus, and how much of it."""
+
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    embeddings: int
+
+
 class SessionSpeakerLabel(BaseModel):
     """One block-local label of a session with its cluster resolution."""
 

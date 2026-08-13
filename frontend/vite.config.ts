@@ -9,6 +9,10 @@ const target = process.env.API_PROXY ?? "http://127.0.0.1:8000"
 
 export default defineConfig({
   plugins: [react()],
+  // plotly.js's lib/* entry points (the custom bundle in src/plotlyBundle.ts)
+  // are CommonJS and reference Node's `global`; the prebuilt dists don't, but
+  // they are all-or-nothing about which traces they carry.
+  define: { global: "globalThis" },
   server: {
     proxy: {
       "/v1": target,
