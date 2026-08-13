@@ -1187,6 +1187,136 @@ button.row:hover,
   opacity: 1;
 }
 
+/* ------------- speaker map: voice-prints in a PCA plane */
+
+/* A scatter needs more room than the reading column the other tabs use. */
+.main.wide {
+  width: min(1280px, 100%);
+}
+
+.map-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.map-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* The plot is a shadow of a 256-dimensional space; saying so is not optional. */
+.map-caveat {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.map-body {
+  display: flex;
+  gap: var(--gap);
+  align-items: flex-start;
+}
+
+.map-plot {
+  flex: 1;
+  min-width: 0;
+  height: 62vh;
+  min-height: 380px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0b0d12;
+}
+
+.map-inspector {
+  width: 260px;
+  flex: none;
+  padding: var(--pad);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.map-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-inspector-head strong {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.map-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.map-facts dt {
+  color: var(--text-muted);
+}
+
+.map-facts dd {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.map-facts .mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.map-inspector-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-clip {
+  position: relative;
+  display: inline-flex;
+}
+
+.map-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
 /* ------------- visual timeline strip */
 
 .strip {
@@ -1647,6 +1777,18 @@ button.row:hover,
 
   .whoami {
     display: none;
+  }
+
+  .map-body {
+    flex-direction: column;
+  }
+
+  .map-inspector {
+    width: 100%;
+  }
+
+  .map-plot {
+    height: 52vh;
   }
 
   .row {

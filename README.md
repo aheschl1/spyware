@@ -119,7 +119,10 @@ session renaming), timeline (transcripts, speakers, sound tags), seekable audio
 playback, text→audio search, and speaker curation: labeling, merging split voices (distance-ranked
 candidates, same-name prompt), inspecting a cluster's voice-prints by ear,
 moving/ejecting wrong voices (pinned so rebuilds honor it), and tuning the
-clustering threshold + recomputing from a settings panel. The "ab" tab runs
+clustering threshold + recomputing from a settings panel. The "map" tab plots
+the voice-prints themselves — a PCA of the corpus the clusterer clusters, so
+separation can be seen rather than inferred from distances
+(`docs/speaker-map.md`). The "ab" tab runs
 the transcription A/B: blinded per-utterance voting between parakeet and
 whisper (chunk vs whole-block strategies) — the winner becomes the timeline
 transcript and feeds a model × strategy tally. Dev-mode only for now:

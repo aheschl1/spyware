@@ -7,9 +7,10 @@ import Gate from "./components/Gate"
 import SearchView from "./components/SearchView"
 import SessionList from "./components/SessionList"
 import SessionView from "./components/SessionView"
+import SpeakerMap from "./components/SpeakerMap"
 import SpeakersView from "./components/SpeakersView"
 
-type Tab = "sessions" | "search" | "speakers" | "ab"
+type Tab = "sessions" | "search" | "speakers" | "map" | "ab"
 
 type View =
   | { kind: "list"; tab: Tab }
@@ -46,7 +47,7 @@ export default function App() {
       <header className="topbar">
         <span className="brand">spyware</span>
         <nav className="tabs">
-          {(["sessions", "search", "speakers", "ab"] as const).map((tab) => (
+          {(["sessions", "search", "speakers", "map", "ab"] as const).map((tab) => (
             <button
               key={tab}
               className={`tab ${activeTab === tab && view.kind === "list" ? "active" : ""}`}
@@ -70,7 +71,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="main">
+      <main className={`main ${view.kind === "list" && view.tab === "map" ? "wide" : ""}`}>
         {view.kind === "session" ? (
           <SessionView
             key={view.id}
@@ -90,6 +91,8 @@ export default function App() {
           <SessionList onOpen={openSession} />
         ) : view.tab === "search" ? (
           <SearchView onOpen={openSession} />
+        ) : view.tab === "map" ? (
+          <SpeakerMap onOpen={openSession} />
         ) : view.tab === "ab" ? (
           <AbOverview onVote={(id) => setView({ kind: "ab", id })} />
         ) : (

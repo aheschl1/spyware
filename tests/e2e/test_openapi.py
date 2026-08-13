@@ -32,6 +32,7 @@ EXPECTED_METHODS = {
     "/v1/speakers": {"get"},
     "/v1/speakers/cluster-params": {"get", "post"},
     "/v1/speakers/cluster-params/reset": {"post"},
+    "/v1/speakers/projection": {"get"},
     "/v1/speakers/recluster": {"post"},
     "/v1/speakers/transcripts": {"get"},
     "/v1/speakers/{speaker_id}": {"get"},

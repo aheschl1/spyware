@@ -1983,6 +1983,128 @@
         ]
       }
     },
+    "/v1/speakers/projection": {
+      "get": {
+        "tags": [
+          "speakers"
+        ],
+        "summary": "Your voice-prints in three dimensions",
+        "description": "A PCA of your voice-prints, computed on request.\n\nThe plot is a shadow of a 256-dimensional space: read\n``explained_variance_ratio`` before trusting that two points which look\nclose really are. ``distance`` per point is the honest full-space number.\n\nFilters subset the output only \u2014 the basis is always fitted on the whole\n``(user, model)`` corpus, so toggling one does not move the remaining\npoints.",
+        "operationId": "get_speaker_projection_v1_speakers_projection_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Embedding model to project; defaults to your largest corpus. Models are never mixed \u2014 different spaces.",
+              "title": "Model"
+            },
+            "description": "Embedding model to project; defaults to your largest corpus. Models are never mixed \u2014 different spaces."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only return points from this session. The basis is still fitted on the whole corpus, so points never move.",
+              "title": "Session Id"
+            },
+            "description": "Only return points from this session. The basis is still fitted on the whole corpus, so points never move."
+          },
+          {
+            "name": "include_unassigned",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Include voice-prints no cluster claimed.",
+              "default": true,
+              "title": "Include Unassigned"
+            },
+            "description": "Include voice-prints no cluster claimed."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10000,
+              "minimum": 1,
+              "description": "Cap on returned points; the fit always uses everything.",
+              "default": 2000,
+              "title": "Limit"
+            },
+            "description": "Cap on returned points; the fit always uses everything."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeakerProjectionRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/speakers/{speaker_id}": {
       "get": {
         "tags": [
@@ -4243,6 +4365,248 @@
         "title": "PlaybackTokenRead",
         "description": "A minutes-lived token for media-element audio URLs (``?token=``)."
       },
+      "ProjectionClusterRead": {
+        "properties": {
+          "speaker_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Speaker Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "embeddings": {
+            "type": "integer",
+            "title": "Embeddings",
+            "description": "Members contributing to this marker."
+          },
+          "coords": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Coords"
+          }
+        },
+        "type": "object",
+        "required": [
+          "speaker_id",
+          "embeddings",
+          "coords"
+        ],
+        "title": "ProjectionClusterRead",
+        "description": "A cluster's marker: the mean of its members' projected coordinates.\n\nProjection is affine, so this *is* the projected centroid \u2014 computed from\nthe coordinates already returned, and undefined (absent) for a named\ncluster that currently has no members."
+      },
+      "ProjectionModelRead": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "embeddings": {
+            "type": "integer",
+            "title": "Embeddings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "model",
+          "embeddings"
+        ],
+        "title": "ProjectionModelRead",
+        "description": "An embedding model present in the corpus, and how much of it."
+      },
+      "ProjectionPointRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "speaker": {
+            "type": "string",
+            "title": "Speaker",
+            "description": "Block-local diarization label, provenance."
+          },
+          "coords": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Coords",
+            "description": "PC1, PC2, PC3."
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id",
+            "description": "Cluster; null = unassigned."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "distance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance",
+            "description": "Cosine distance to the cluster centroid, full space."
+          },
+          "talk_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Talk Ms"
+          },
+          "pinned": {
+            "type": "boolean",
+            "title": "Pinned"
+          },
+          "split_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Split Of",
+            "description": "Original label, when the purity audit split it."
+          },
+          "start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Ms",
+            "description": "The diarization block's span."
+          },
+          "end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Ms"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label"
+          },
+          "clip_start_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip Start Ms",
+            "description": "The voice's cleanest utterance in the block."
+          },
+          "clip_end_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clip End Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "session_id",
+          "speaker",
+          "coords",
+          "pinned",
+          "started_at"
+        ],
+        "title": "ProjectionPointRead",
+        "description": "One voice-print placed in the PCA basis.\n\n``distance`` is the cosine distance to the cluster centroid in the full\nembedding space \u2014 deliberately *not* the on-screen distance, which is a\nlossy shadow of it (see ``explained_variance_ratio``)."
+      },
       "ReadinessRead": {
         "properties": {
           "status": {
@@ -5012,6 +5376,92 @@
         ],
         "title": "SpeakerMergeRequest",
         "description": "Body of ``POST /speakers/{id}/merge``: fold the path speaker into\nthis one. The survivor keeps its id (and its name, unless it has none\nand the merged-away cluster does)."
+      },
+      "SpeakerProjectionRead": {
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model",
+            "description": "Null when you have no voice-prints."
+          },
+          "available_models": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectionModelRead"
+            },
+            "type": "array",
+            "title": "Available Models"
+          },
+          "basis_id": {
+            "type": "string",
+            "title": "Basis Id"
+          },
+          "fit_points": {
+            "type": "integer",
+            "title": "Fit Points",
+            "description": "Voice-prints the basis was fitted on."
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "truncated": {
+            "type": "boolean",
+            "title": "Truncated",
+            "description": "Whether ``limit`` dropped points."
+          },
+          "explained_variance_ratio": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Explained Variance Ratio",
+            "description": "Share of total variance per component. Two components out of 256 dimensions typically capture only 10-30%."
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectionPointRead"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "clusters": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectionClusterRead"
+            },
+            "type": "array",
+            "title": "Clusters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available_models",
+          "basis_id",
+          "fit_points",
+          "returned",
+          "truncated",
+          "explained_variance_ratio",
+          "points",
+          "clusters"
+        ],
+        "title": "SpeakerProjectionRead",
+        "description": "One embedding model's voice-prints in a PCA basis, fitted per request.\n\nThe basis is fitted on the caller's whole ``(user, model)`` corpus and the\nfilters only subset the output, so a point keeps its coordinates when the\nsession filter changes. ``basis_id`` moves exactly when the basis does \u2014 a\nviewer holds its pan/zoom while it is unchanged.\n\nModels are never mixed: their vectors live in different spaces."
       },
       "SpeakerRead": {
         "properties": {

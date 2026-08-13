@@ -15,6 +15,8 @@ from psycopg.rows import dict_row
 from database.repos.base import BaseRepo
 from database.schema.speakers import (
     CorpusEmbedding,
+    EmbeddingModelCount,
+    ProjectionPoint,
     SessionSpeakerLabel,
     Speaker,
     SpeakerCreate,
@@ -134,6 +136,69 @@ class SpeakersRepo(BaseRepo):
                 LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
                 WHERE rs.user_id = %s
                 ORDER BY e.artifact_id
+            """,
+            (user_id,),
+        )
+
+    async def projection_corpus(
+        self, user_id: UUID, model: str
+    ) -> list[ProjectionPoint]:
+        """One model's voice-prints with their inspection metadata.
+
+        A sibling of :meth:`corpus_for_user` rather than an extension of it —
+        the clusterer wants every model in one pass, the map wants exactly one
+        (a shared basis across models would be meaningless) plus the cluster
+        name, centroid distance and clip span it does not need.
+
+        The clip is the voice's cleanest utterance in the block, by the same
+        join :meth:`members` uses, so both views play the same audio."""
+        return await self._fetch_all(
+            ProjectionPoint,
+            """
+                SELECT e.artifact_id, e.session_id, e.speaker,
+                       e.embedding::text AS embedding,
+                       rs.started_at, rs.label AS session_label,
+                       a.start_ms, a.end_ms,
+                       coalesce((a.metadata->>'clean_talk_ms')::bigint,
+                                (a.metadata->>'talk_ms')::bigint) AS talk_ms,
+                       a.metadata->>'split_of' AS split_of,
+                       e.speaker_id, s.name AS speaker_name,
+                       CASE WHEN s.centroid IS NULL THEN NULL
+                            ELSE e.embedding <=> s.centroid END AS distance,
+                       p.artifact_id IS NOT NULL AS pinned,
+                       u.start_ms AS clip_start_ms, u.end_ms AS clip_end_ms
+                FROM speaker_embeddings e
+                JOIN recording_sessions rs ON rs.id = e.session_id
+                LEFT JOIN speakers s ON s.id = e.speaker_id
+                LEFT JOIN pipeline_artifacts a ON a.id = e.artifact_id
+                LEFT JOIN speaker_pins p ON p.artifact_id = e.artifact_id
+                LEFT JOIN LATERAL (
+                    SELECT t.start_ms, t.end_ms FROM pipeline_artifacts t
+                    WHERE t.session_id = e.session_id
+                      AND t.pipeline = 'diarize' AND t.kind = 'utterance'
+                      AND t.metadata->>'speaker' = e.speaker
+                    ORDER BY (t.end_ms - t.start_ms)
+                             - coalesce((t.metadata->>'overlap_ms')::bigint, 0) DESC
+                    LIMIT 1
+                ) u ON true
+                WHERE rs.user_id = %s AND e.model = %s
+                ORDER BY e.artifact_id
+            """,
+            (user_id, model),
+        )
+
+    async def embedding_models(self, user_id: UUID) -> list[EmbeddingModelCount]:
+        """The models present in a user's corpus, largest first — the map's
+        picker and its default."""
+        return await self._fetch_all(
+            EmbeddingModelCount,
+            """
+                SELECT e.model, count(*) AS embeddings
+                FROM speaker_embeddings e
+                JOIN recording_sessions rs ON rs.id = e.session_id
+                WHERE rs.user_id = %s
+                GROUP BY e.model
+                ORDER BY count(*) DESC, e.model
             """,
             (user_id,),
         )

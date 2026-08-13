@@ -531,6 +531,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/speakers/projection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Your voice-prints in three dimensions
+         * @description A PCA of your voice-prints, computed on request.
+         *
+         *     The plot is a shadow of a 256-dimensional space: read
+         *     ``explained_variance_ratio`` before trusting that two points which look
+         *     close really are. ``distance`` per point is the honest full-space number.
+         *
+         *     Filters subset the output only — the basis is always fitted on the whole
+         *     ``(user, model)`` corpus, so toggling one does not move the remaining
+         *     points.
+         */
+        get: operations["get_speaker_projection_v1_speakers_projection_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/speakers/{speaker_id}": {
         parameters: {
             query?: never;
@@ -1336,6 +1364,120 @@ export interface components {
              */
             expires_at: string;
         };
+        /**
+         * ProjectionClusterRead
+         * @description A cluster's marker: the mean of its members' projected coordinates.
+         *
+         *     Projection is affine, so this *is* the projected centroid — computed from
+         *     the coordinates already returned, and undefined (absent) for a named
+         *     cluster that currently has no members.
+         */
+        ProjectionClusterRead: {
+            /**
+             * Speaker Id
+             * Format: uuid
+             */
+            speaker_id: string;
+            /** Name */
+            name?: string | null;
+            /**
+             * Embeddings
+             * @description Members contributing to this marker.
+             */
+            embeddings: number;
+            /** Coords */
+            coords: [
+                number,
+                number,
+                number
+            ];
+        };
+        /**
+         * ProjectionModelRead
+         * @description An embedding model present in the corpus, and how much of it.
+         */
+        ProjectionModelRead: {
+            /** Model */
+            model: string;
+            /** Embeddings */
+            embeddings: number;
+        };
+        /**
+         * ProjectionPointRead
+         * @description One voice-print placed in the PCA basis.
+         *
+         *     ``distance`` is the cosine distance to the cluster centroid in the full
+         *     embedding space — deliberately *not* the on-screen distance, which is a
+         *     lossy shadow of it (see ``explained_variance_ratio``).
+         */
+        ProjectionPointRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Speaker
+             * @description Block-local diarization label, provenance.
+             */
+            speaker: string;
+            /**
+             * Coords
+             * @description PC1, PC2, PC3.
+             */
+            coords: [
+                number,
+                number,
+                number
+            ];
+            /**
+             * Speaker Id
+             * @description Cluster; null = unassigned.
+             */
+            speaker_id?: string | null;
+            /** Name */
+            name?: string | null;
+            /**
+             * Distance
+             * @description Cosine distance to the cluster centroid, full space.
+             */
+            distance?: number | null;
+            /** Talk Ms */
+            talk_ms?: number | null;
+            /** Pinned */
+            pinned: boolean;
+            /**
+             * Split Of
+             * @description Original label, when the purity audit split it.
+             */
+            split_of?: string | null;
+            /**
+             * Start Ms
+             * @description The diarization block's span.
+             */
+            start_ms?: number | null;
+            /** End Ms */
+            end_ms?: number | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Session Label */
+            session_label?: string | null;
+            /**
+             * Clip Start Ms
+             * @description The voice's cleanest utterance in the block.
+             */
+            clip_start_ms?: number | null;
+            /** Clip End Ms */
+            clip_end_ms?: number | null;
+        };
         /** ReadinessRead */
         ReadinessRead: {
             /** Status */
@@ -1772,6 +1914,53 @@ export interface components {
              * @description The cluster that survives the merge.
              */
             into_speaker_id: string;
+        };
+        /**
+         * SpeakerProjectionRead
+         * @description One embedding model's voice-prints in a PCA basis, fitted per request.
+         *
+         *     The basis is fitted on the caller's whole ``(user, model)`` corpus and the
+         *     filters only subset the output, so a point keeps its coordinates when the
+         *     session filter changes. ``basis_id`` moves exactly when the basis does — a
+         *     viewer holds its pan/zoom while it is unchanged.
+         *
+         *     Models are never mixed: their vectors live in different spaces.
+         */
+        SpeakerProjectionRead: {
+            /**
+             * Model
+             * @description Null when you have no voice-prints.
+             */
+            model?: string | null;
+            /** Available Models */
+            available_models: components["schemas"]["ProjectionModelRead"][];
+            /** Basis Id */
+            basis_id: string;
+            /**
+             * Fit Points
+             * @description Voice-prints the basis was fitted on.
+             */
+            fit_points: number;
+            /** Returned */
+            returned: number;
+            /**
+             * Truncated
+             * @description Whether ``limit`` dropped points.
+             */
+            truncated: boolean;
+            /**
+             * Explained Variance Ratio
+             * @description Share of total variance per component. Two components out of 256 dimensions typically capture only 10-30%.
+             */
+            explained_variance_ratio: [
+                number,
+                number,
+                number
+            ];
+            /** Points */
+            points: components["schemas"]["ProjectionPointRead"][];
+            /** Clusters */
+            clusters: components["schemas"]["ProjectionClusterRead"][];
         };
         /**
          * SpeakerRead
@@ -3538,6 +3727,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_speaker_projection_v1_speakers_projection_get: {
+        parameters: {
+            query?: {
+                /** @description Embedding model to project; defaults to your largest corpus. Models are never mixed — different spaces. */
+                model?: string | null;
+                /** @description Only return points from this session. The basis is still fitted on the whole corpus, so points never move. */
+                session_id?: string | null;
+                /** @description Include voice-prints no cluster claimed. */
+                include_unassigned?: boolean;
+                /** @description Cap on returned points; the fit always uses everything. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpeakerProjectionRead"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

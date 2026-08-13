@@ -24,7 +24,11 @@ from api.schema.speakers import (
     ClusterParamsOverrides,
     ClusterParamsRead,
     ClusterParamsValues,
+    ProjectionClusterRead,
+    ProjectionModelRead,
+    ProjectionPointRead,
     ReclusterResponse,
+    SpeakerProjectionRead,
     SimilarSpeakerRead,
     SimilarSpeakersResponse,
     SpeakerLabelRequest,
@@ -138,6 +142,107 @@ async def recluster(user: CurrentUser, pipe: Pipe) -> ReclusterResponse:
         assigned=counts["assigned"],
         pinned=counts["pinned"],
         skipped_short=counts["skipped_short"],
+    )
+
+
+@router.get("/projection", summary="Your voice-prints in three dimensions")
+async def get_speaker_projection(
+    user: CurrentUser,
+    pipe: Pipe,
+    model: str | None = Query(
+        None,
+        description="Embedding model to project; defaults to your largest "
+        "corpus. Models are never mixed — different spaces.",
+    ),
+    session_id: UUID | None = Query(
+        None,
+        description="Only return points from this session. The basis is "
+        "still fitted on the whole corpus, so points never move.",
+    ),
+    include_unassigned: bool = Query(
+        True, description="Include voice-prints no cluster claimed."
+    ),
+    limit: int = Query(
+        2000,
+        ge=1,
+        le=10_000,
+        description="Cap on returned points; the fit always uses everything.",
+    ),
+) -> SpeakerProjectionRead:
+    """A PCA of your voice-prints, computed on request.
+
+    The plot is a shadow of a 256-dimensional space: read
+    ``explained_variance_ratio`` before trusting that two points which look
+    close really are. ``distance`` per point is the honest full-space number.
+
+    Filters subset the output only — the basis is always fitted on the whole
+    ``(user, model)`` corpus, so toggling one does not move the remaining
+    points."""
+    from processing.projection import COMPONENTS, fit_projection
+
+    available = await pipe.speakers.embedding_models(user.id)
+    models = [ProjectionModelRead(model=m.model, embeddings=m.embeddings) for m in available]
+    chosen = model or (available[0].model if available else None)
+    if chosen is None:
+        empty = fit_projection([])
+        return SpeakerProjectionRead(
+            model=None,
+            available_models=models,
+            basis_id=empty.basis_id,
+            fit_points=0,
+            returned=0,
+            truncated=False,
+            explained_variance_ratio=(0.0, 0.0, 0.0),
+            points=[],
+            clusters=[],
+        )
+
+    corpus = await pipe.speakers.projection_corpus(user.id, chosen)
+    basis = fit_projection([point.embedding for point in corpus])
+
+    placed = [
+        (point, (float(row[0]), float(row[1]), float(row[2])))
+        for point, row in zip(corpus, basis.coords, strict=True)
+        if (session_id is None or point.session_id == session_id)
+        and (include_unassigned or point.speaker_id is not None)
+    ]
+
+    # Stride, not a head slice: a head slice would show only the oldest
+    # sessions. Deterministic because the corpus order is.
+    truncated = len(placed) > limit
+    if truncated:
+        placed = placed[:: -(-len(placed) // limit)][:limit]
+
+    # Affine projection ⇒ the mean of member coords is the projected centroid,
+    # for free. Empty named clusters keep a stale centroid and get no marker.
+    pooled: dict[UUID, list[tuple[str | None, tuple[float, float, float]]]] = {}
+    for point, coords in placed:
+        if point.speaker_id is not None:
+            pooled.setdefault(point.speaker_id, []).append((point.speaker_name, coords))
+    clusters = [
+        ProjectionClusterRead(
+            speaker_id=speaker_id,
+            name=rows[0][0],
+            embeddings=len(rows),
+            coords=tuple(
+                sum(row[1][axis] for row in rows) / len(rows)
+                for axis in range(COMPONENTS)
+            ),
+        )
+        for speaker_id, rows in pooled.items()
+    ]
+
+    ratio = basis.explained_variance_ratio
+    return SpeakerProjectionRead(
+        model=chosen,
+        available_models=models,
+        basis_id=basis.basis_id,
+        fit_points=len(corpus),
+        returned=len(placed),
+        truncated=truncated,
+        explained_variance_ratio=(float(ratio[0]), float(ratio[1]), float(ratio[2])),
+        points=[ProjectionPointRead.from_model(p, c) for p, c in placed],
+        clusters=clusters,
     )
 
 
