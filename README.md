@@ -165,8 +165,8 @@ an `HF_TOKEN` in `deploy/.env` — its weights are gated.
 origin), and the three sidecars. Postgres and MinIO are not in it — those are
 the shared containers in `~/docker_deployments`, reached at the WireGuard host
 IP. Public at `https://spyware.andrewheschl.ca`, TLS terminated by that stack's
-`server-nginx`; `deploy/nginx/spyware.conf` is the vhost, and `make nginx`
-installs it.
+`server-nginx` — the vhost is `builds/nginx/conf.d/spyware.conf` over there,
+since that is the directory nginx mounts.
 
 ```bash
 cp deploy/.env.example deploy/.env    # credentials only; addresses come from compose

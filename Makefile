@@ -36,20 +36,12 @@ api:
 api-lan:
 	$(MAKE) api HOST=0.0.0.0
 
-# One supervisor, one child process per registered pipeline.
 worker:
 	uv run python -m processing
 
-# The running server serves this same document at /stream-schema.json, which
-# is what client codegen fetches (e.g. `bun run gen` in the computa miniapp);
-# this target prints it without a server.
 schema:
 	uv run python -m api.schema.stream_export
 
-# The spec is a pure function of the route/model declarations (no server, no
-# database), so this is deterministic and the output is committed — the
-# frontend's types are generated from it (make gen-client) and reviewed as
-# part of any API change.
 openapi:
 	uv run python -c "import json; from api.main import app; print(json.dumps(app.openapi(), indent=2))" > frontend/openapi.json
 
@@ -77,14 +69,9 @@ test-unit:
 test-e2e:
 	uv run pytest tests/e2e
 
-# --- deployment (deploy/docker-compose.yml) ----------------------------------
 
 COMPOSE := docker compose -f deploy/docker-compose.yml
 
-# The bridge between the two worlds. These are the same containers the
-# deployment runs, published on 127.0.0.1:8033-8035 — which is where the
-# code's own defaults point — so `make api` / `make worker` on the host reach
-# them with no configuration. Nothing about the dev flow changes.
 sidecars:
 	$(COMPOSE) up -d --build asr-parakeet diar-pyannote audio-tagger
 
@@ -107,15 +94,5 @@ stack-logs:
 stack-migrate:
 	$(COMPOSE) run --rm migrate
 
-# `run`, not `exec`: the CLI is a one-shot click command with no long-running
-# container of its own. ARGS="users create --email ..."
 stack-cli:
 	$(COMPOSE) run --rm cli python -m cli.main $(ARGS)
-
-# Installs the vhost into the shared front door and reloads it. server-nginx
-# bind-mounts conf.d, so the file has to physically live over there; this repo
-# holds the source of truth.
-INFRA ?= $(HOME)/docker_deployments
-nginx:
-	cp deploy/nginx/spyware.conf $(INFRA)/builds/nginx/conf.d/spyware.conf
-	docker compose -f $(INFRA)/builds/docker-compose.yml up -d server-nginx
