@@ -1,0 +1,202 @@
+# The full stack: API, worker, web tier, and the three GPU model sidecars.
+#
+# Postgres and MinIO are NOT here — they are the shared `postgress` and `minio`
+# containers in ~/docker_deployments, reached at the WireGuard host IP. That
+# only works from a bridge they are not on: Docker skips published-port DNAT
+# for traffic arriving on the target's own bridge, so app containers must stay
+# on audio-net and never join builds_default.
+#
+# Local development is unaffected by any of this. `make sidecars` starts just
+# the three model containers, still published on 127.0.0.1:8033-8035, which is
+# exactly where the code's own defaults point — so a host-run `make api` /
+# `make worker` finds them with no configuration at all. The docker-network
+# addresses below are overrides that exist only inside this stack.
+
+name: audio-pipeline
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  image: audio-pipeline-app:latest
+  env_file: [.env]
+  environment: &app-env
+    # The shared stores, cross-bridge (see the header).
+    DATABASE_HOST: 10.8.0.1
+    STORAGE_ENDPOINT_URL: http://10.8.0.1:9000
+    # Sidecars by service name. API_CLASSIFIER_BASE_URL is a separate setting
+    # from the PROCESSING_ one — the API's text->audio search uses it — and
+    # they must not drift, hence one anchor for both.
+    PROCESSING_TRANSCRIBER_BASE_URL: http://asr-parakeet:8000/v1
+    PROCESSING_DIARIZER_BASE_URL: http://diar-pyannote:8000/v1
+    PROCESSING_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
+    API_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
+  networks: [audio-net]
+
+x-gpu: &gpu
+  runtime: nvidia
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            capabilities: [gpu]
+
+# python3, not curl: guaranteed present in these images. urlopen raises on the
+# 503 the servers answer while weights are loading.
+x-sidecar-healthcheck: &sidecar-healthcheck
+  test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+  interval: 30s
+  timeout: 10s
+  retries: 5
+
+services:
+  # Schema first; api and worker wait for it to exit 0. Idempotent, so it
+  # re-runs harmlessly on every `up`.
+  migrate:
+    <<: *app
+    container_name: audio-migrate
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    container_name: audio-api
+    # The default bind is 127.0.0.1 (api/main.py), which inside a container
+    # means nothing else can reach it.
+    command: ["python", "-m", "api", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    healthcheck:
+      # /health, not /health/ready: the ready probe touches Postgres and calls
+      # ensure_bucket() on MinIO, so a blip in either would kill the container.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # One supervisor, one child process per pipeline. Never scale this: orphan
+  # recovery assumes exactly one (docs/processing-pipelines.md).
+  worker:
+    <<: *app
+    container_name: audio-worker
+    command: ["python", "-m", "processing"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      # A cold sidecar refuses connections, which the tiers treat as a
+      # retryable failure — five attempts with a 2s base exhaust in ~30s,
+      # far inside the sidecars' 5-15 minute weight load. Without this gate
+      # every queued job dead-letters at stack start.
+      asr-parakeet: {condition: service_healthy}
+      diar-pyannote: {condition: service_healthy}
+      audio-tagger: {condition: service_healthy}
+    # PROCESSING_SHUTDOWN_GRACE_SECONDS is 20s, above Docker's 10s default;
+    # without this every `compose down` SIGKILLs a job mid-flight.
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # The only service published outward: server-nginx proxies
+  # https://spyware.andrewheschl.ca to it.
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web/Dockerfile
+    image: audio-pipeline-web:latest
+    container_name: audio-web
+    depends_on:
+      api: {condition: service_healthy}
+    ports:
+      - "10.8.0.1:8098:80"
+    networks: [audio-net]
+    restart: unless-stopped
+
+  # Admin CLI. Behind a profile so `up` never starts it:
+  #   make stack-cli ARGS="users create ..."
+  cli:
+    <<: *app
+    container_name: audio-cli
+    profiles: ["tools"]
+    command: ["python", "-m", "cli.main", "--help"]
+    restart: "no"
+
+  # ---- model sidecars (source in ../sidecars) -------------------------------
+  # Still published on loopback so the host-run development flow keeps working
+  # unchanged, and on the VPN IP for peers.
+
+  asr-parakeet:
+    <<: *gpu
+    build:
+      context: ../sidecars/asr_parakeet
+    container_name: asr-parakeet
+    ports:
+      - "127.0.0.1:8033:8000"
+      - "10.8.0.1:8033:8000"
+    volumes:
+      - asr-parakeet-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 300s
+    networks: [audio-net]
+    restart: unless-stopped
+
+  diar-pyannote:
+    <<: *gpu
+    build:
+      context: ../sidecars/diar_pyannote
+    container_name: diar-pyannote
+    ports:
+      - "127.0.0.1:8034:8000"
+      - "10.8.0.1:8034:8000"
+    volumes:
+      - diar-pyannote-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      # The pyannote weights are gated; without this the container starts and
+      # then fails to load a model.
+      HF_TOKEN: ${HF_TOKEN:?set HF_TOKEN in deploy/.env — see deploy/.env.example}
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 900s
+    networks: [audio-net]
+    restart: unless-stopped
+
+  audio-tagger:
+    <<: *gpu
+    build:
+      context: ../sidecars/audio_tagger
+    container_name: audio-tagger
+    ports:
+      - "127.0.0.1:8035:8000"
+      - "10.8.0.1:8035:8000"
+    volumes:
+      - audio-tagger-hf-cache:/root/.cache/huggingface
+    environment:
+      HF_HOME: /root/.cache/huggingface
+    healthcheck:
+      <<: *sidecar-healthcheck
+      start_period: 900s
+    networks: [audio-net]
+    restart: unless-stopped
+
+networks:
+  # A bridge of its own, deliberately not builds_default — see the header.
+  audio-net:
+    driver: bridge
+
+volumes:
+  # The weights these hold are tens of gigabytes and were downloaded under the
+  # `builds` compose project. `external: true` adopts them by their existing
+  # names instead of re-fetching, and keeps `down -v` from deleting them.
+  asr-parakeet-hf-cache:
+    external: true
+    name: builds_asr-parakeet-hf-cache
+  diar-pyannote-hf-cache:
+    external: true
+    name: builds_diar-pyannote-hf-cache
+  audio-tagger-hf-cache:
+    external: true
+    name: builds_audio-tagger-hf-cache

@@ -101,7 +101,9 @@ so it is not implemented yet.
    `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` in the deployment stack.
 2. `uv sync`
 3. Start MinIO: `docker compose -f ~/docker_deployments/builds/docker-compose.yml up -d minio`
-4. `uv run alembic upgrade head`, then `uv run python -m cli.main blobs check`
+4. `make sidecars` — the three model containers (`sidecars/`), on
+   `127.0.0.1:8033-8035`, which is where the code's defaults already point.
+5. `uv run alembic upgrade head`, then `uv run python -m cli.main blobs check`
 
 ### CLI
 
@@ -122,10 +124,11 @@ moving/ejecting wrong voices (pinned so rebuilds honor it), and tuning the
 clustering threshold + recomputing from a settings panel. The "map" tab plots
 the voice-prints themselves — a PCA of the corpus the clusterer clusters, so
 separation can be seen rather than inferred from distances
-(`docs/speaker-map.md`). The "ab" tab runs
+(`docs/speaker-map.md`). In development it runs against the Vite dev server;
+deployed, the same bundle is served by the stack's `web` container. The "ab" tab runs
 the transcription A/B: blinded per-utterance voting between parakeet and
 whisper (chunk vs whole-block strategies) — the winner becomes the timeline
-transcript and feeds a model × strategy tally. Dev-mode only for now:
+transcript and feeds a model × strategy tally. Locally:
 
 ```bash
 make api    # terminal 1 — the API on 127.0.0.1:8000
@@ -140,6 +143,50 @@ typed openapi-fetch client. Regenerate after any API change — `npm run build`
 (tsc) fails on drift. Audio playback uses a minutes-lived token minted by
 `POST /v1/sessions/{id}/playback` in the audio URL's `?token=`, because media
 elements cannot send an Authorization header.
+
+## Model sidecars (`sidecars/`)
+
+Three GPU serving containers, each a Dockerfile plus one `app.py`. They are the
+tiers the worker cannot do in-process:
+
+| Directory | Container | Port | Serves |
+| --- | --- | --- | --- |
+| `asr_parakeet` | `asr-parakeet` | 8033 | parakeet-tdt transcription (+ a whisper A/B slot) |
+| `diar_pyannote` | `diar-pyannote` | 8034 | pyannote diarization, per-turn embeddings |
+| `audio_tagger` | `audio-tagger` | 8035 | CED sound tags + CLAP embeddings |
+
+Each has its own README covering models, API and knobs. `diar-pyannote` needs
+an `HF_TOKEN` in `deploy/.env` — its weights are gated.
+
+## Deployment (`deploy/`)
+
+`deploy/docker-compose.yml` runs the whole thing: `migrate`, `api`, `worker`, a
+`web` tier (nginx serving the built SPA and relaying the API on the same
+origin), and the three sidecars. Postgres and MinIO are not in it — those are
+the shared containers in `~/docker_deployments`, reached at the WireGuard host
+IP. Public at `https://spyware.andrewheschl.ca`, TLS terminated by that stack's
+`server-nginx`; `deploy/nginx/spyware.conf` is the vhost, and `make nginx`
+installs it.
+
+```bash
+cp deploy/.env.example deploy/.env    # credentials only; addresses come from compose
+make stack-up                         # build and start everything
+make stack-ps                         # migrate exited 0, api healthy, worker up
+make stack-logs S=worker
+```
+
+**Sidecar addresses switch on their own.** Every setting is pydantic-settings,
+where a real environment variable outranks the dotenv file, so compose points
+the containers at `http://asr-parakeet:8000/v1` and friends while the code's
+defaults stay `http://127.0.0.1:8033/v1`. The sidecars keep publishing those
+loopback ports either way, so `make sidecars` + a host-run `make api` /
+`make worker` needs no configuration and no separate profile. There is no
+branch anywhere in the code for this.
+
+Two constraints the compose file encodes: the worker is never scaled (one
+supervisor, one child per pipeline — `docs/processing-pipelines.md`), and it
+waits for the sidecars to report healthy, because a job that meets a cold
+sidecar burns all five attempts inside 30s while weights are still loading.
 
 ## Tests
 
