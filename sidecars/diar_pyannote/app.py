@@ -243,7 +243,23 @@ def _diarize_file(path: str) -> dict:
     from pyannote.core import Timeline
 
     with _gpu_lock:
-        diarization = _pipeline(path)
+        try:
+            diarization = _pipeline(path)
+        except ValueError as exc:
+            # A block whose segmentation finds no active speaker anywhere
+            # leaves every chunk marked inactive, and reconstruct() sizes an
+            # array with max(hard_clusters) + 1 == -1. Silence is a normal
+            # input here (the VAD gate upstream is deliberately high-recall),
+            # so it answers "no speakers", not a retryable failure.
+            if "negative dimensions" not in str(exc):
+                raise
+            logger.warning("no speakers detected; returning an empty diarization")
+            return {
+                "turns": [],
+                "embeddings": {},
+                "model": MODEL_ID,
+                "embedding_model": EMBED_MODEL,
+            }
         # DiariZen labels speakers with bare integers; the tier's contract (and
         # the purity audit's `SPEAKER_00.1` sub-label grammar, which a bare `0`
         # would make ambiguous) expects pyannote's SPEAKER_XX. labels() is
