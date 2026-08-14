@@ -333,6 +333,7 @@ def split_labels(
 
 class DiarizePipeline(Pipeline):
     name = "diarize"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()

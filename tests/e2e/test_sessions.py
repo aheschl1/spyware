@@ -237,13 +237,13 @@ async def test_session_audio_range_spans_segment_boundaries(
 async def test_session_audio_refuses_mixed_content_types(
     client: httpx.AsyncClient, account: Account
 ) -> None:
-    from services import audio
+    from services import segments as segment_service
     from tests.e2e.conftest import ingest
     from tests.wav import wav_bytes
 
     session = await make_session(account)
     await ingest(session.id, wav_bytes(seconds=0.05))
-    await audio.ingest_segment(session.id, b"not-wav-bytes", content_type="audio/webm")
+    await segment_service.ingest_segment(session.id, b"not-wav-bytes", content_type="audio/webm")
 
     response = await client.get(f"/v1/sessions/{session.id}/audio", headers=account.headers)
     assert response.status_code == 409

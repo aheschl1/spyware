@@ -208,6 +208,7 @@ def _match_identity(
 
 class SpeakerClusterPipeline(Pipeline):
     name = "speaker-cluster"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()

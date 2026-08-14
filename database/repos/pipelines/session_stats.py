@@ -30,7 +30,7 @@ class SessionStatsQueries(PipelineDiscovery):
                        COALESCE(SUM(duration_ms), 0) AS duration_ms,
                        COALESCE(ARRAY_AGG(id ORDER BY sequence), ARRAY[]::uuid[])
                            AS segment_ids
-                FROM audio_segments WHERE session_id = %s
+                FROM resource_segments WHERE session_id = %s AND resource = 'audio'
             """,
             (session_id,),
         )

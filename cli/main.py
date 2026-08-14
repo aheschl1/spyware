@@ -21,7 +21,7 @@ from database import DatabaseError, DatabasePipe, close_pool, get_settings
 from database.exceptions import NotFoundError
 from database.schema.sessions import SessionCreate
 from database.schema.users import UserCreate
-from services import audio as audio_service
+from services import segments as segment_service
 from storage import BlobNotFoundError, BlobPipe, close_blob_client
 from storage import get_settings as get_storage_settings
 
@@ -369,7 +369,7 @@ async def sessions_delete(session_id: UUID, yes: bool) -> None:
     """Delete a session, its segments, and their audio."""
     if not yes:
         click.confirm(f"delete session {session_id} and all of its audio?", abort=True)
-    removed = await audio_service.delete_session(session_id)
+    removed = await segment_service.delete_session(session_id)
     click.echo(f"deleted session and {removed} object(s)")
 
 
@@ -537,10 +537,10 @@ async def segments_ingest(
 ) -> None:
     """Store a local audio file as the next segment of a session."""
     guessed = content_type or mimetypes.guess_type(path.name)[0]
-    segment = await audio_service.ingest_segment(
+    segment = await segment_service.ingest_segment(
         session_id,
         path.read_bytes(),
-        content_type=guessed or audio_service.DEFAULT_CONTENT_TYPE,
+        content_type=guessed,
         filename=path.name,
         duration_ms=duration_ms,
         offset_ms=offset_ms,
@@ -592,7 +592,7 @@ async def segments_show(segment_id: UUID) -> None:
 @async_command
 async def segments_download(segment_id: UUID, dest: Path) -> None:
     """Write a segment's audio to a local file."""
-    segment, data = await audio_service.read_segment(segment_id)
+    segment, data = await segment_service.read_segment(segment_id)
     dest.write_bytes(data)
     click.echo(f"wrote {_human_bytes(len(data))} to {dest} (from {segment.object_key})")
 
@@ -603,7 +603,7 @@ async def segments_download(segment_id: UUID, dest: Path) -> None:
 @async_command
 async def segments_url(segment_id: UUID, expires_in: int | None) -> None:
     """Print a presigned URL that serves the segment directly."""
-    click.echo(await audio_service.segment_url(segment_id, expires_in=expires_in))
+    click.echo(await segment_service.segment_url(segment_id, expires_in=expires_in))
 
 
 @segments.command("delete")
@@ -614,7 +614,7 @@ async def segments_delete(segment_id: UUID, yes: bool) -> None:
     """Delete a segment and its audio."""
     if not yes:
         click.confirm(f"delete segment {segment_id} and its audio?", abort=True)
-    deleted = await audio_service.delete_segment(segment_id)
+    deleted = await segment_service.delete_segment(segment_id)
     click.echo("deleted" if deleted else "no such segment")
 
 

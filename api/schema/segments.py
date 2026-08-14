@@ -6,7 +6,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from database.schema.segments import AudioSegment
+from database.schema.segments import ResourceSegment
+from resources.audio import AudioAttrs
 
 
 class SegmentRead(BaseModel):
@@ -34,7 +35,8 @@ class SegmentRead(BaseModel):
     metadata: dict[str, Any]
 
     @classmethod
-    def from_model(cls, segment: AudioSegment) -> "SegmentRead":
+    def from_model(cls, segment: ResourceSegment) -> "SegmentRead":
+        attrs = AudioAttrs.from_attrs(segment.attrs)
         return cls(
             id=segment.id,
             session_id=segment.session_id,
@@ -46,8 +48,8 @@ class SegmentRead(BaseModel):
             byte_size=segment.byte_size,
             content_type=segment.content_type,
             checksum_sha256=segment.checksum_hex,
-            codec=segment.codec,
-            sample_rate_hz=segment.sample_rate_hz,
-            channels=segment.channels,
+            codec=attrs.codec,
+            sample_rate_hz=attrs.sample_rate_hz,
+            channels=attrs.channels,
             metadata=segment.metadata,
         )

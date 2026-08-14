@@ -91,6 +91,10 @@ async def test_failing_job_retries_then_dies(worker: None, clean_state) -> None:
                 user_id=account.user.id, device="glasses-01", metadata={"boom": True}
             )
         )
+    # Discovery is resource-aware: a session with no audio is not
+    # session-stats work, so give the boom session one segment.
+    await ingest(session.id, wav_bytes(seconds=0.05), duration_ms=50)
+    async with DatabasePipe() as pipe:
         await pipe.sessions.end(session.id)
 
     job = await wait_for_job(session.id, "session-stats", JobStatus.DEAD)

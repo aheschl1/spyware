@@ -1,7 +1,9 @@
-"""Pydantic models for the ``audio_segments`` table.
+"""Pydantic models for the ``resource_segments`` table.
 
-A row is metadata plus a pointer; the audio lives in the blob store under
-``object_key``.
+A row is one ingested chunk of one resource. Blob-stored resources (audio)
+keep their bytes in the object store under ``object_key``; inline resources
+(location) carry their parsed payload in ``payload``. Exactly one of the two
+shapes holds per row — the table CHECK enforces it.
 """
 
 from datetime import datetime
@@ -11,27 +13,27 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AudioSegment(BaseModel):
+class ResourceSegment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
     session_id: UUID
     user_id: UUID
+    resource: str
     sequence: int
     ingested_at: datetime
     captured_at: datetime | None = None
     offset_ms: int | None = None
     duration_ms: int | None = None
 
-    bucket: str
-    object_key: str
+    bucket: str | None = None
+    object_key: str | None = None
+    payload: Any | None = None
     byte_size: int
     content_type: str
     checksum_sha256: bytes | None = None
 
-    codec: str | None = None
-    sample_rate_hz: int | None = None
-    channels: int | None = None
+    attrs: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -40,7 +42,7 @@ class AudioSegment(BaseModel):
 
 
 class SegmentCreate(BaseModel):
-    """Input for registering a segment whose blob has already been written.
+    """Input for registering a segment (blob already written, or inline).
 
     ``sequence`` may be left ``None``, in which case the repository assigns the
     next one within the session.
@@ -51,23 +53,23 @@ class SegmentCreate(BaseModel):
     id: UUID
     session_id: UUID
     user_id: UUID
-    bucket: str
-    object_key: str
+    resource: str = "audio"
     byte_size: int
     content_type: str = "application/octet-stream"
+    bucket: str | None = None
+    object_key: str | None = None
+    payload: Any | None = None
     sequence: int | None = None
     captured_at: datetime | None = None
     offset_ms: int | None = None
     duration_ms: int | None = None
     checksum_sha256: bytes | None = None
-    codec: str | None = None
-    sample_rate_hz: int | None = None
-    channels: int | None = None
+    attrs: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class UserUsage(BaseModel):
-    """How much audio one user has stored."""
+    """How much data one user has stored, across all resources."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -76,12 +78,13 @@ class UserUsage(BaseModel):
 
 
 class SegmentSetFingerprint(BaseModel):
-    """A cheap change-token for one session's segment set.
+    """A cheap change-token for one session's segment set of one resource.
 
-    Segments are only appended or deleted, never mutated, so any change moves at
-    least one of these fields. Equal fingerprints therefore mean the stitched
-    audio is byte-for-byte identical and its plan and ETag can be reused. Read
-    with a single aggregate query -- no rows cross the wire.
+    Segments are only appended or deleted, never mutated, so any change moves
+    at least one of these fields. Scoped to a single resource: equal audio
+    fingerprints must mean the stitched audio is byte-for-byte identical, so
+    interleaved rows of other resources cannot participate. Read with a single
+    aggregate query -- no rows cross the wire.
     """
 
     model_config = ConfigDict(frozen=True)

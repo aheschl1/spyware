@@ -218,6 +218,7 @@ def select_spans(
 
 class SoundSpanPipeline(Pipeline):
     name = "sound-span"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()

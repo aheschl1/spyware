@@ -31,6 +31,7 @@ _SOURCE_PIPELINE = "diarize"
 
 class TranscribePipeline(Pipeline):
     name = "transcribe"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()
