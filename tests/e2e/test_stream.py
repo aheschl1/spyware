@@ -93,7 +93,7 @@ async def test_stream_happy_path(
     assert [item["sequence"] for item in items] == list(range(12))
     assert items[0]["content_type"] == "audio/wav"
 
-    audio = await client.get(f"/v1/segments/{items[3]['id']}/audio", headers=account.headers)
+    audio = await client.get(f"/v1/segments/{items[3]['id']}/media", headers=account.headers)
     assert audio.content == payloads[3]
 
     ended = await client.get(f"/v1/sessions/{session_id}", headers=account.headers)
@@ -430,7 +430,7 @@ async def test_stream_interleaves_location_with_audio(
         assert row.captured_at is not None  # derived from the first point
 
     # The stitched audio is untouched by the interleaved rows.
-    stitched = await client.get(f"/v1/sessions/{session.id}/audio", headers=account.headers)
+    stitched = await client.get(f"/v1/sessions/{session.id}/resources/audio/media", headers=account.headers)
     assert stitched.status_code == 200
     body = stitched.content
     assert body[:4] == b"RIFF"

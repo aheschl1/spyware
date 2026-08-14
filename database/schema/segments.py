@@ -70,13 +70,26 @@ class SegmentCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class UserUsage(BaseModel):
-    """How much data one user has stored, across all resources."""
+class ResourceUsage(BaseModel):
+    """How much of one resource a user has stored."""
 
     model_config = ConfigDict(frozen=True)
 
+    resource: str
     segments: int
     total_bytes: int
+
+
+class SessionResourceSummary(BaseModel):
+    """What one session holds of one resource."""
+
+    model_config = ConfigDict(frozen=True)
+
+    resource: str
+    segments: int
+    total_bytes: int
+    first_captured_at: datetime | None = None
+    last_captured_at: datetime | None = None
 
 
 class SegmentSetFingerprint(BaseModel):

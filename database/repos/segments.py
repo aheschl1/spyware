@@ -15,9 +15,10 @@ from database.repos.base import BaseRepo
 from resources import Resource
 from database.schema.segments import (
     ResourceSegment,
+    ResourceUsage,
     SegmentCreate,
     SegmentSetFingerprint,
-    UserUsage,
+    SessionResourceSummary,
 )
 
 COLUMNS = (
@@ -179,14 +180,30 @@ class SegmentsRepo(BaseRepo):
         assert fingerprint is not None  # aggregate without GROUP BY always returns a row
         return fingerprint
 
-    async def usage_for_user(self, user_id: UUID) -> UserUsage:
-        usage = await self._fetch_one(
-            UserUsage,
+    async def usage_for_user(self, user_id: UUID) -> list[ResourceUsage]:
+        """Stored totals per resource; a resource never captured has no row."""
+        return await self._fetch_all(
+            ResourceUsage,
             """
-                SELECT COUNT(*) AS segments, COALESCE(SUM(byte_size), 0) AS total_bytes
+                SELECT resource, COUNT(*) AS segments,
+                       COALESCE(SUM(byte_size), 0) AS total_bytes
                 FROM resource_segments WHERE user_id = %s
+                GROUP BY resource ORDER BY resource
             """,
             (user_id,),
         )
-        assert usage is not None  # aggregate without GROUP BY always returns a row
-        return usage
+
+    async def resource_summary(self, session_id: UUID) -> list[SessionResourceSummary]:
+        """What a session holds, one row per resource present."""
+        return await self._fetch_all(
+            SessionResourceSummary,
+            """
+                SELECT resource, COUNT(*) AS segments,
+                       COALESCE(SUM(byte_size), 0) AS total_bytes,
+                       MIN(captured_at) AS first_captured_at,
+                       MAX(captured_at) AS last_captured_at
+                FROM resource_segments WHERE session_id = %s
+                GROUP BY resource ORDER BY resource
+            """,
+            (session_id,),
+        )
