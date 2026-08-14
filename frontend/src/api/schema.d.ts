@@ -258,6 +258,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/resources/location/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A session's location points by timeline position
+         * @description The session's fixes in timeline order, window half-open
+         *     ``[from_ms, to_ms)`` — adjacent windows partition the stream. A session
+         *     with no location resource yields an empty page, like an unprocessed
+         *     session's timeline serves just its frames.
+         */
+        get: operations["list_session_location_points_v1_sessions__session_id__resources_location_points_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/artifacts": {
         parameters: {
             query?: never;
@@ -445,6 +468,31 @@ export interface paths {
          *     touching the store.
          */
         get: operations["get_segment_media_v1_segments__segment_id__media_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources/location/points": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Query your location by wall-clock time
+         * @description Every stored fix across your sessions, oldest first.
+         *
+         *     The window is half-open ``[from, to)`` on the fix's ``captured_at``;
+         *     timestamps must carry a timezone (naive ones are rejected). Like the
+         *     search routes, ``session_id`` narrows within your own data rather than
+         *     404ing on someone else's id.
+         */
+        get: operations["list_location_points_v1_resources_location_points_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1304,6 +1352,43 @@ export interface components {
             /** Status */
             status: string;
         };
+        /**
+         * LocationPointRead
+         * @description One GPS fix, addressed on both clocks.
+         *
+         *     ``at_ms`` is the position on its session's timeline (wall clock minus
+         *     session start). It can drift from the audio-position time other timeline
+         *     entries use when capture had gaps, and can be negative for a fix taken
+         *     just before the session row was created.
+         */
+        LocationPointRead: {
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Segment Id
+             * Format: uuid
+             * @description The batch segment the point arrived in.
+             */
+            segment_id: string;
+            /** At Ms */
+            at_ms: number;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            /** Alt M */
+            alt_m: number | null;
+            /** Accuracy M */
+            accuracy_m: number | null;
+        };
         /** LocationSegmentAttrs */
         LocationSegmentAttrs: {
             /** Points */
@@ -1389,6 +1474,20 @@ export interface components {
         Page_ArtifactRead_: {
             /** Items */
             items: components["schemas"]["ArtifactRead"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Has More
+             * @description True when more rows exist past this slice.
+             */
+            has_more: boolean;
+        };
+        /** Page[LocationPointRead] */
+        Page_LocationPointRead_: {
+            /** Items */
+            items: components["schemas"]["LocationPointRead"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -3139,6 +3238,63 @@ export interface operations {
             };
         };
     };
+    list_session_location_points_v1_sessions__session_id__resources_location_points_get: {
+        parameters: {
+            query?: {
+                /** @description Only points at/after this time. */
+                from_ms?: number | null;
+                /** @description Only points before this time. */
+                to_ms?: number | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_LocationPointRead_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_session_artifacts_v1_sessions__session_id__artifacts_get: {
         parameters: {
             query?: {
@@ -3610,6 +3766,62 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_location_points_v1_resources_location_points_get: {
+        parameters: {
+            query?: {
+                /** @description Only points at/after this instant. */
+                from?: string | null;
+                /** @description Only points before this instant. */
+                to?: string | null;
+                /** @description Only points of this session (foreign ids match nothing). */
+                session_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_LocationPointRead_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
