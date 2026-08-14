@@ -314,7 +314,7 @@ export interface paths {
         /**
          * A session's ordered event timeline
          * @description What happened when: session frames, speech starts/ends, transcripts,
-         *     sound tags and the sound spans built from them.
+         *     sound tags, the sound spans built from them, and location points.
          *
          *     Events carry a ``type`` discriminator; clients must ignore types they do
          *     not recognise — future processing tiers add new ones. `limit`/`offset`
@@ -326,6 +326,8 @@ export interface paths {
          *
          *     An unprocessed (or speechless) session serves just its session frames;
          *     processing status stays introspectable via `.../artifacts?kind=speech-map`.
+         *     Location points come straight from the stored segments — no pipeline —
+         *     so they appear live while the session is still streaming.
          */
         get: operations["get_session_timeline_v1_sessions__session_id__timeline_get"];
         put?: never;
@@ -1353,6 +1355,46 @@ export interface components {
         HealthRead: {
             /** Status */
             status: string;
+        };
+        /**
+         * LocationPointEvent
+         * @description One GPS fix.
+         *
+         *     ``at_ms`` is wall-clock-derived (the fix's time minus the session start),
+         *     which can drift from the audio-position time other events use when
+         *     capture had gaps — the same caveat as ``session-end``.
+         */
+        LocationPointEvent: {
+            /**
+             * At Ms
+             * @description Position of this event on the session timeline, ms.
+             */
+            at_ms: number;
+            /**
+             * Segment Id
+             * Format: uuid
+             * @description The resource segment this event derives from.
+             */
+            segment_id: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "location-point";
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            /** Alt M */
+            alt_m?: number | null;
+            /** Accuracy M */
+            accuracy_m?: number | null;
+            /**
+             * Captured At
+             * Format: date-time
+             * @description Wall-clock time of the fix.
+             */
+            captured_at: string;
         };
         /**
          * LocationPointRead
@@ -2436,7 +2478,7 @@ export interface components {
             /** Items */
             items: components["schemas"]["TagSearchRead"][];
         };
-        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"] | components["schemas"]["SoundSpanEvent"];
+        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"] | components["schemas"]["SoundSpanEvent"] | components["schemas"]["LocationPointEvent"];
         /**
          * TokenIssued
          * @description The plaintext exists exactly once, here; the server stores only a hash.

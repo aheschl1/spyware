@@ -1180,7 +1180,7 @@
           "sessions"
         ],
         "summary": "A session's ordered event timeline",
-        "description": "What happened when: session frames, speech starts/ends, transcripts,\nsound tags and the sound spans built from them.\n\nEvents carry a ``type`` discriminator; clients must ignore types they do\nnot recognise \u2014 future processing tiers add new ones. `limit`/`offset`\npage over events (one artifact can yield several, so offsets here do not\nline up with the artifacts route). A `from_ms`/`to_ms` window keeps only\nevents positioned inside it, so adjacent windows partition the stream \u2014\na span straddling a boundary contributes its `speech-end` alone, and a\n`sound-span` that began before the window is left out entirely.\n\nAn unprocessed (or speechless) session serves just its session frames;\nprocessing status stays introspectable via `.../artifacts?kind=speech-map`.",
+        "description": "What happened when: session frames, speech starts/ends, transcripts,\nsound tags, the sound spans built from them, and location points.\n\nEvents carry a ``type`` discriminator; clients must ignore types they do\nnot recognise \u2014 future processing tiers add new ones. `limit`/`offset`\npage over events (one artifact can yield several, so offsets here do not\nline up with the artifacts route). A `from_ms`/`to_ms` window keeps only\nevents positioned inside it, so adjacent windows partition the stream \u2014\na span straddling a boundary contributes its `speech-end` alone, and a\n`sound-span` that began before the window is left out entirely.\n\nAn unprocessed (or speechless) session serves just its session frames;\nprocessing status stays introspectable via `.../artifacts?kind=speech-map`.\nLocation points come straight from the stored segments \u2014 no pipeline \u2014\nso they appear live while the session is still streaming.",
         "operationId": "get_session_timeline_v1_sessions__session_id__timeline_get",
         "security": [
           {
@@ -4593,6 +4593,73 @@
         ],
         "title": "HealthRead"
       },
+      "LocationPointEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "segment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Segment Id",
+            "description": "The resource segment this event derives from."
+          },
+          "type": {
+            "type": "string",
+            "const": "location-point",
+            "title": "Type",
+            "default": "location-point"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt M"
+          },
+          "accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy M"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At",
+            "description": "Wall-clock time of the fix."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "segment_id",
+          "lat",
+          "lon",
+          "captured_at"
+        ],
+        "title": "LocationPointEvent",
+        "description": "One GPS fix.\n\n``at_ms`` is wall-clock-derived (the fix's time minus the session start),\nwhich can drift from the audio-position time other events use when\ncapture had gaps \u2014 the same caveat as ``session-end``."
+      },
       "LocationPointRead": {
         "properties": {
           "session_id": {
@@ -6611,12 +6678,16 @@
           },
           {
             "$ref": "#/components/schemas/SoundSpanEvent"
+          },
+          {
+            "$ref": "#/components/schemas/LocationPointEvent"
           }
         ],
         "discriminator": {
           "propertyName": "type",
           "mapping": {
             "audio-tag": "#/components/schemas/AudioTagEvent",
+            "location-point": "#/components/schemas/LocationPointEvent",
             "session-end": "#/components/schemas/SessionEndEvent",
             "session-start": "#/components/schemas/SessionStartEvent",
             "sound-span": "#/components/schemas/SoundSpanEvent",
