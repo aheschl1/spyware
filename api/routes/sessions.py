@@ -20,6 +20,7 @@ from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.artifacts import ArtifactRead
 from api.schema.auth import PlaybackTokenRead
 from api.schema.common import ErrorResponse, Page
+from api.schema.locations import LocationPointRead
 from api.schema.segments import SegmentRead, SessionResourceRead, segment_read
 from api.schema.sessions import (
     SessionCreateRequest,
@@ -137,6 +138,32 @@ async def list_session_resources(
     """One entry per resource with any segments, ordered by resource name."""
     rows = await pipe.segments.resource_summary(session.id)
     return [SessionResourceRead.from_model(row) for row in rows]
+
+
+@router.get(
+    "/{session_id}/resources/location/points",
+    summary="A session's location points by timeline position",
+)
+async def list_session_location_points(
+    session: OwnedSession,
+    pipe: Pipe,
+    paging: Paging,
+    from_ms: int | None = Query(None, description="Only points at/after this time."),
+    to_ms: int | None = Query(None, description="Only points before this time."),
+) -> Page[LocationPointRead]:
+    """The session's fixes in timeline order, window half-open
+    ``[from_ms, to_ms)`` — adjacent windows partition the stream. A session
+    with no location resource yields an empty page, like an unprocessed
+    session's timeline serves just its frames.
+    """
+    rows = await pipe.locations.points_for_session(
+        session.id,
+        from_ms=from_ms,
+        to_ms=to_ms,
+        limit=paging.probe_limit,
+        offset=paging.offset,
+    )
+    return Page.build(rows, paging, LocationPointRead.from_model)
 
 
 @router.get("/{session_id}/artifacts", summary="List a session's pipeline artifacts")

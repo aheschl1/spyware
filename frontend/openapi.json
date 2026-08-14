@@ -882,6 +882,136 @@
         }
       }
     },
+    "/v1/sessions/{session_id}/resources/location/points": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "A session's location points by timeline position",
+        "description": "The session's fixes in timeline order, window half-open\n``[from_ms, to_ms)`` \u2014 adjacent windows partition the stream. A session\nwith no location resource yields an empty page, like an unprocessed\nsession's timeline serves just its frames.",
+        "operationId": "list_session_location_points_v1_sessions__session_id__resources_location_points_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only points at/after this time.",
+              "title": "From Ms"
+            },
+            "description": "Only points at/after this time."
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only points before this time.",
+              "title": "To Ms"
+            },
+            "description": "Only points before this time."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LocationPointRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/artifacts": {
       "get": {
         "tags": [
@@ -1693,6 +1823,145 @@
           },
           "416": {
             "description": "The requested range lies outside the object."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/location/points": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "summary": "Query your location by wall-clock time",
+        "description": "Every stored fix across your sessions, oldest first.\n\nThe window is half-open ``[from, to)`` on the fix's ``captured_at``;\ntimestamps must carry a timezone (naive ones are rejected). Like the\nsearch routes, ``session_id`` narrows within your own data rather than\n404ing on someone else's id.",
+        "operationId": "list_location_points_v1_resources_location_points_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only points at/after this instant.",
+              "title": "From"
+            },
+            "description": "Only points at/after this instant."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only points before this instant.",
+              "title": "To"
+            },
+            "description": "Only points before this instant."
+          },
+          {
+            "name": "session_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only points of this session (foreign ids match nothing).",
+              "title": "Session Id"
+            },
+            "description": "Only points of this session (foreign ids match nothing)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LocationPointRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "description": "Validation Error",
@@ -4338,6 +4607,73 @@
         ],
         "title": "HealthRead"
       },
+      "LocationPointRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "segment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Segment Id",
+            "description": "The batch segment the point arrived in."
+          },
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "lat": {
+            "type": "number",
+            "title": "Lat"
+          },
+          "lon": {
+            "type": "number",
+            "title": "Lon"
+          },
+          "alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt M"
+          },
+          "accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accuracy M"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "segment_id",
+          "at_ms",
+          "captured_at",
+          "lat",
+          "lon",
+          "alt_m",
+          "accuracy_m"
+        ],
+        "title": "LocationPointRead",
+        "description": "One GPS fix, addressed on both clocks.\n\n``at_ms`` is the position on its session's timeline (wall clock minus\nsession start). It can drift from the audio-position time other timeline\nentries use when capture had gaps, and can be negative for a fix taken\njust before the session row was created."
+      },
       "LocationSegmentAttrs": {
         "properties": {
           "points": {
@@ -4544,6 +4880,38 @@
           "has_more"
         ],
         "title": "Page[ArtifactRead]"
+      },
+      "Page_LocationPointRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LocationPointRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[LocationPointRead]"
       },
       "Page_SegmentRead_": {
         "properties": {
