@@ -138,7 +138,7 @@ PlayableSession = Annotated[RecordingSession, Depends(get_playable_session)]
 
 async def get_owned_segment(
     user: CurrentUser,
-    segment_id: Annotated[UUID, Path(description="An audio segment belonging to you.")],
+    segment_id: Annotated[UUID, Path(description="A segment belonging to you.")],
 ) -> ResourceSegment:
     """Load a segment the caller owns. Another user's segment raises 404.
 
@@ -149,7 +149,7 @@ async def get_owned_segment(
         segment = await pipe.segments.get(segment_id)
     if segment is None or segment.user_id != user.id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="audio segment not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="segment not found"
         )
     return segment
 

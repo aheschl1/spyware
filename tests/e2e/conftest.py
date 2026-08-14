@@ -420,6 +420,16 @@ async def ingest(session_id, payload: bytes, **kwargs):
     )
 
 
+async def ingest_location(session_id, points: list[dict], **kwargs):
+    import json
+
+    from services import segments as segment_service
+
+    return await segment_service.ingest_segment(
+        session_id, json.dumps({"points": points}).encode(), resource="location", **kwargs
+    )
+
+
 @pytest_asyncio.fixture
 async def client(server: str) -> Any:
     async with httpx.AsyncClient(base_url=server, timeout=30.0) as http:

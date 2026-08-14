@@ -36,7 +36,7 @@ async def test_playback_token_streams_audio_via_query(
     body = await _mint(client, account, session.id)
     assert datetime.fromisoformat(body["expires_at"]) > datetime.now(UTC)
 
-    url = f"/v1/sessions/{session.id}/audio"
+    url = f"/v1/sessions/{session.id}/resources/audio/media"
     full = await client.get(url, params={"token": body["token"]})
     assert full.status_code == 200
     assert full.headers["content-type"] == "audio/wav"
@@ -52,10 +52,10 @@ async def test_audio_still_requires_some_credential(
     client: httpx.AsyncClient, account: Account
 ) -> None:
     session = await _session_with_audio(account)
-    bare = await client.get(f"/v1/sessions/{session.id}/audio")
+    bare = await client.get(f"/v1/sessions/{session.id}/resources/audio/media")
     assert bare.status_code == 401
     bogus = await client.get(
-        f"/v1/sessions/{session.id}/audio", params={"token": "not-a-token"}
+        f"/v1/sessions/{session.id}/resources/audio/media", params={"token": "not-a-token"}
     )
     assert bogus.status_code == 401
 
@@ -65,7 +65,7 @@ async def test_header_wins_over_query_token(
 ) -> None:
     session = await _session_with_audio(account)
     response = await client.get(
-        f"/v1/sessions/{session.id}/audio",
+        f"/v1/sessions/{session.id}/resources/audio/media",
         params={"token": "garbage"},
         headers=account.headers,
     )
@@ -78,7 +78,7 @@ async def test_other_users_session_is_404(
     session = await _session_with_audio(account)
     body = await _mint(client, other_account, (await _session_with_audio(other_account)).id)
     response = await client.get(
-        f"/v1/sessions/{session.id}/audio", params={"token": body["token"]}
+        f"/v1/sessions/{session.id}/resources/audio/media", params={"token": body["token"]}
     )
     assert response.status_code == 404
 
@@ -107,7 +107,7 @@ async def test_expired_playback_token_is_rejected_and_purged(
         raise AssertionError("playback token row never became visible")
 
     rejected = await client.get(
-        f"/v1/sessions/{session.id}/audio", params={"token": body["token"]}
+        f"/v1/sessions/{session.id}/resources/audio/media", params={"token": body["token"]}
     )
     assert rejected.status_code == 401
 

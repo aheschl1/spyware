@@ -99,7 +99,7 @@ export interface paths {
         };
         /**
          * Who this token belongs to
-         * @description Identity plus stored-audio totals.
+         * @description Identity plus per-resource stored totals.
          */
         get: operations["read_me_v1_me_get"];
         put?: never;
@@ -202,11 +202,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mint a short-lived audio playback token
-         * @description A token for the audio route's ``?token=`` parameter.
+         * Mint a short-lived media playback token
+         * @description A token for the media route's ``?token=`` parameter.
          *
          *     Media elements (``<audio src>``) cannot send an Authorization header, so
-         *     the session-audio route also accepts a token in the URL. This mints one
+         *     the session-media route also accepts a token in the URL. This mints one
          *     whose lifetime is minutes; the player re-mints when it expires. It is a
          *     real API token, just time-boxed — expired ``playback`` rows are purged
          *     opportunistically on each mint.
@@ -226,10 +226,30 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List a session's audio segments
-         * @description In capture order (by `sequence`).
+         * List a session's segments
+         * @description In capture order (by `sequence`), interleaved across resources.
          */
         get: operations["list_session_segments_v1_sessions__session_id__segments_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What this session holds, per resource
+         * @description One entry per resource with any segments, ordered by resource name.
+         */
+        get: operations["list_session_resources_v1_sessions__session_id__resources_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -338,7 +358,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/sessions/{session_id}/audio": {
+    "/v1/sessions/{session_id}/resources/{resource}/media": {
         parameters: {
             query?: never;
             header?: never;
@@ -346,19 +366,22 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Stream a session's audio as one WAV
-         * @description Every segment's PCM behind a single WAV header, in sequence order.
+         * Stream a session's rendered media for one resource
+         * @description The session's whole stream of one resource as a single media object.
          *
-         *     The stitched size is known from the rows alone, so `Range` (seeking) and
-         *     conditional requests work exactly as on the per-segment route. An open
-         *     session serves the audio ingested so far; re-request for more.
+         *     Only resources whose type is *renderable* serve media; today that is
+         *     audio — every segment's PCM behind a single WAV header, in sequence
+         *     order. The stitched size is known from the rows alone, so `Range`
+         *     (seeking) and conditional requests work exactly as on the per-segment
+         *     route. An open session serves what has been ingested so far; re-request
+         *     for more.
          *
          *     The representation (header, plan, ETag) is cached per session and reused
          *     until its segments change, so a conditional check or a range seek costs one
          *     cheap fingerprint query rather than a full re-read. No pooled database
          *     connection is held while the body streams from the blob store.
          */
-        get: operations["get_session_audio_v1_sessions__session_id__audio_get"];
+        get: operations["get_session_media_v1_sessions__session_id__resources__resource__media_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -375,7 +398,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * List your audio segments
+         * List your segments
          * @description Across every session the caller owns, most recently ingested first.
          */
         get: operations["list_segments_v1_segments_get"];
@@ -394,7 +417,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Fetch one audio segment's metadata */
+        /** Fetch one segment's metadata */
         get: operations["get_segment_v1_segments__segment_id__get"];
         put?: never;
         post?: never;
@@ -404,7 +427,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/segments/{segment_id}/audio": {
+    "/v1/segments/{segment_id}/media": {
         parameters: {
             query?: never;
             header?: never;
@@ -412,14 +435,16 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Download a segment's audio
-         * @description Stream the stored audio, honouring `Range` and conditional requests.
+         * Download a segment's stored bytes
+         * @description Serve what the segment stores: the blob for blob-backed resources
+         *     (honouring `Range` and conditional requests), the inline payload as JSON
+         *     otherwise.
          *
          *     A `Range` is passed through to the object store, so only that slice is
          *     transferred. Segments are immutable, so `If-None-Match` answers 304 without
          *     touching the store.
          */
-        get: operations["get_segment_audio_v1_segments__segment_id__audio_get"];
+        get: operations["get_segment_media_v1_segments__segment_id__media_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1043,6 +1068,18 @@ export interface components {
             created_at: string;
         };
         /**
+         * AudioAttrs
+         * @description PCM parameters as declared by the client (all optional).
+         */
+        AudioAttrs: {
+            /** Codec */
+            codec?: string | null;
+            /** Sample Rate Hz */
+            sample_rate_hz?: number | null;
+            /** Channels */
+            channels?: number | null;
+        };
+        /**
          * AudioSearchRead
          * @description One audio window matching the query, closest first.
          */
@@ -1093,6 +1130,51 @@ export interface components {
             model: string;
             /** Items */
             items: components["schemas"]["AudioSearchRead"][];
+        };
+        /** AudioSegmentRead */
+        AudioSegmentRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Ingested At
+             * Format: date-time
+             */
+            ingested_at: string;
+            /** Captured At */
+            captured_at: string | null;
+            /** Offset Ms */
+            offset_ms: number | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Byte Size */
+            byte_size: number;
+            /** Content Type */
+            content_type: string;
+            /**
+             * Checksum Sha256
+             * @description Hex-encoded SHA-256 of the wire payload.
+             */
+            checksum_sha256: string | null;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            resource: "audio";
+            attrs: components["schemas"]["AudioAttrs"];
         };
         /**
          * AudioTagEvent
@@ -1222,6 +1304,56 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** LocationSegmentAttrs */
+        LocationSegmentAttrs: {
+            /** Points */
+            points: number;
+        };
+        /** LocationSegmentRead */
+        LocationSegmentRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Sequence */
+            sequence: number;
+            /**
+             * Ingested At
+             * Format: date-time
+             */
+            ingested_at: string;
+            /** Captured At */
+            captured_at: string | null;
+            /** Offset Ms */
+            offset_ms: number | null;
+            /** Duration Ms */
+            duration_ms: number | null;
+            /** Byte Size */
+            byte_size: number;
+            /** Content Type */
+            content_type: string;
+            /**
+             * Checksum Sha256
+             * @description Hex-encoded SHA-256 of the wire payload.
+             */
+            checksum_sha256: string | null;
+            /** Metadata */
+            metadata: {
+                [key: string]: unknown;
+            };
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            resource: "location";
+            attrs: components["schemas"]["LocationSegmentAttrs"];
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -1244,10 +1376,14 @@ export interface components {
         /**
          * MeRead
          * @description `GET /v1/me`: who the token belongs to, and what they have stored.
+         *
+         *     ``usage`` holds one entry per resource the caller has captured, ordered by
+         *     resource name; a resource never captured has no entry.
          */
         MeRead: {
             user: components["schemas"]["UserRead"];
-            usage: components["schemas"]["UsageRead"];
+            /** Usage */
+            usage: components["schemas"]["ResourceUsageRead"][];
         };
         /** Page[ArtifactRead] */
         Page_ArtifactRead_: {
@@ -1514,56 +1650,18 @@ export interface components {
             skipped_short: number;
         };
         /**
-         * SegmentRead
-         * @description An audio segment's metadata as served over HTTP.
-         *
-         *     Carries no ``bucket`` or ``object_key``; audio is fetched from
-         *     ``GET /v1/segments/{id}/audio``.
+         * ResourceUsageRead
+         * @description How much of one resource the caller has stored.
          */
-        SegmentRead: {
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Session Id
-             * Format: uuid
-             */
-            session_id: string;
-            /** Sequence */
-            sequence: number;
-            /**
-             * Ingested At
-             * Format: date-time
-             */
-            ingested_at: string;
-            /** Captured At */
-            captured_at: string | null;
-            /** Offset Ms */
-            offset_ms: number | null;
-            /** Duration Ms */
-            duration_ms: number | null;
-            /** Byte Size */
-            byte_size: number;
-            /** Content Type */
-            content_type: string;
-            /**
-             * Checksum Sha256
-             * @description Hex-encoded SHA-256 of the audio.
-             */
-            checksum_sha256: string | null;
-            /** Codec */
-            codec: string | null;
-            /** Sample Rate Hz */
-            sample_rate_hz: number | null;
-            /** Channels */
-            channels: number | null;
-            /** Metadata */
-            metadata: {
-                [key: string]: unknown;
-            };
+        ResourceUsageRead: {
+            /** Resource */
+            resource: string;
+            /** Segments */
+            segments: number;
+            /** Total Bytes */
+            total_bytes: number;
         };
+        SegmentRead: components["schemas"]["AudioSegmentRead"] | components["schemas"]["LocationSegmentRead"];
         /**
          * SessionCreateRequest
          * @description Body for starting a session; the owner comes from the bearer token.
@@ -1663,6 +1761,22 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * SessionResourceRead
+         * @description What one session holds of one resource.
+         */
+        SessionResourceRead: {
+            /** Resource */
+            resource: string;
+            /** Segments */
+            segments: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** First Captured At */
+            first_captured_at: string | null;
+            /** Last Captured At */
+            last_captured_at: string | null;
         };
         /**
          * SessionSpeakerRead
@@ -2364,16 +2478,6 @@ export interface components {
             items: components["schemas"]["TranscriptSearchRead"][];
         };
         /**
-         * UsageRead
-         * @description How much audio the caller has stored.
-         */
-        UsageRead: {
-            /** Segments */
-            segments: number;
-            /** Total Bytes */
-            total_bytes: number;
-        };
-        /**
          * UserRead
          * @description The caller's own account. Never exposes another user.
          */
@@ -2933,6 +3037,8 @@ export interface operations {
     list_session_segments_v1_sessions__session_id__segments_get: {
         parameters: {
             query?: {
+                /** @description Only segments of this resource. */
+                resource?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -2952,6 +3058,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_SegmentRead_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_session_resources_v1_sessions__session_id__resources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionResourceRead"][];
                 };
             };
             /** @description Unauthorized */
@@ -3206,7 +3362,7 @@ export interface operations {
             };
         };
     };
-    get_session_audio_v1_sessions__session_id__audio_get: {
+    get_session_media_v1_sessions__session_id__resources__resource__media_get: {
         parameters: {
             query?: {
                 /** @description Bearer token as a query parameter, for media elements that cannot send an Authorization header. Mint a short-lived one via POST /v1/sessions/{session_id}/playback. Ignored when the header is present. */
@@ -3214,6 +3370,7 @@ export interface operations {
             };
             header?: never;
             path: {
+                resource: string;
                 /** @description A recording session belonging to you. */
                 session_id: string;
             };
@@ -3221,7 +3378,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The whole session, stitched. */
+            /** @description The whole session, rendered. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -3255,14 +3412,14 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The session holds no audio. */
+            /** @description Unknown or non-renderable resource, or the session holds none of it. */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description The session's segments do not form one continuous WAV. */
+            /** @description The session's segments do not form one continuous stream. */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -3271,7 +3428,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description The requested range lies outside the audio. */
+            /** @description The requested range lies outside the media. */
             416: {
                 headers: {
                     [name: string]: unknown;
@@ -3292,6 +3449,8 @@ export interface operations {
     list_segments_v1_segments_get: {
         parameters: {
             query?: {
+                /** @description Only segments of this resource. */
+                resource?: string | null;
                 limit?: number;
                 offset?: number;
             };
@@ -3344,7 +3503,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description An audio segment belonging to you. */
+                /** @description A segment belonging to you. */
                 segment_id: string;
             };
             cookie?: never;
@@ -3389,25 +3548,26 @@ export interface operations {
             };
         };
     };
-    get_segment_audio_v1_segments__segment_id__audio_get: {
+    get_segment_media_v1_segments__segment_id__media_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
-                /** @description An audio segment belonging to you. */
+                /** @description A segment belonging to you. */
                 segment_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The whole audio object. */
+            /** @description The stored object (blob resources) or inline payload. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "audio/*": unknown;
+                    "application/json": unknown;
                 };
             };
             /** @description The requested byte range. */
