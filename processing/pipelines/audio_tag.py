@@ -140,6 +140,7 @@ def span_starts(total_ms: int, *, span_ms: int, overlap_ms: int) -> list[int]:
 
 class AudioTagPipeline(Pipeline):
     name = "audio-tag"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()
@@ -151,8 +152,9 @@ class AudioTagPipeline(Pipeline):
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         async with DatabasePipe() as pipe:
-            sessions = await PipelineDiscovery(pipe.connection).ended_sessions_without(
-                self.name, limit
+            discovery = PipelineDiscovery(pipe.connection)
+            sessions = await discovery.ended_sessions_with_resource_without(
+                self.name, self.resource, limit
             )
         return tuple(
             JobCreate(

@@ -13,7 +13,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from api.schema.common import PageParams
 from database.pipe import DatabasePipe
-from database.schema.segments import AudioSegment
+from database.schema.segments import ResourceSegment
 from database.schema.sessions import RecordingSession
 from database.schema.speakers import Speaker
 from database.schema.users import User
@@ -139,7 +139,7 @@ PlayableSession = Annotated[RecordingSession, Depends(get_playable_session)]
 async def get_owned_segment(
     user: CurrentUser,
     segment_id: Annotated[UUID, Path(description="An audio segment belonging to you.")],
-) -> AudioSegment:
+) -> ResourceSegment:
     """Load a segment the caller owns. Another user's segment raises 404.
 
     On its own short-lived connection (see :func:`get_owned_session`): the
@@ -154,7 +154,7 @@ async def get_owned_segment(
     return segment
 
 
-OwnedSegment = Annotated[AudioSegment, Depends(get_owned_segment)]
+OwnedSegment = Annotated[ResourceSegment, Depends(get_owned_segment)]
 
 
 async def get_owned_speaker(

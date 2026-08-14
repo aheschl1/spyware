@@ -21,11 +21,13 @@ from storage.pipe import BlobPipe
 
 class SessionStatsPipeline(Pipeline):
     name = "session-stats"
+    resource = "audio"
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         async with DatabasePipe() as pipe:
-            sessions = await SessionStatsQueries(pipe.connection).ended_sessions_without(
-                self.name, limit
+            queries = SessionStatsQueries(pipe.connection)
+            sessions = await queries.ended_sessions_with_resource_without(
+                self.name, self.resource, limit
             )
         logging.debug(f"pipeline {self.name} found {len(sessions)} jobs")
         return tuple(

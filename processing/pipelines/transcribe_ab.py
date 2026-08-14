@@ -69,6 +69,7 @@ def _blocks(utterances: Sequence[PipelineArtifact]) -> dict[tuple[int, int], lis
 
 class TranscribeAbPipeline(Pipeline):
     name = "transcribe-ab"
+    resource = "audio"
 
     async def setup(self) -> None:
         self._settings = get_settings()

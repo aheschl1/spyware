@@ -9,7 +9,7 @@ from api.deps import CurrentUser, OwnedSegment, Paging, Pipe
 from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.common import Page
 from api.schema.segments import SegmentRead
-from database.schema.segments import AudioSegment
+from database.schema.segments import ResourceSegment
 from storage.keys import suffix_for
 from storage.pipe import BlobPipe
 
@@ -31,7 +31,7 @@ async def get_segment(segment: OwnedSegment) -> SegmentRead:
 
 
 async def _stream_audio(
-    segment: AudioSegment, start: int | None = None, end: int | None = None
+    segment: ResourceSegment, start: int | None = None, end: int | None = None
 ) -> AsyncIterator[bytes]:
     """Yield the segment's bytes, optionally only the inclusive range.
 
@@ -63,7 +63,7 @@ async def _stream_audio(
     return body()
 
 
-def _etag(segment: AudioSegment) -> str:
+def _etag(segment: ResourceSegment) -> str:
     """Strong validator: the stored SHA-256, or id + size when it is unset."""
     return f'"{segment.checksum_hex or f"{segment.id}-{segment.byte_size}"}"'
 
@@ -86,6 +86,9 @@ async def get_segment_audio(segment: OwnedSegment, request: Request) -> Response
     transferred. Segments are immutable, so `If-None-Match` answers 304 without
     touching the store.
     """
+    if segment.object_key is None:
+        # Inline resources have no audio object to stream.
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
     etag = _etag(segment)
     filename = f"{segment.sequence:06d}-{segment.id}{suffix_for(segment.content_type)}"
     headers = {
