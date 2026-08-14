@@ -199,7 +199,7 @@ async def get_session_timeline(
     window: Range,
 ) -> Page[TimelineEvent]:
     """What happened when: session frames, speech starts/ends, transcripts,
-    sound tags and the sound spans built from them.
+    sound tags, the sound spans built from them, and location points.
 
     Events carry a ``type`` discriminator; clients must ignore types they do
     not recognise — future processing tiers add new ones. `limit`/`offset`
@@ -211,16 +211,30 @@ async def get_session_timeline(
 
     An unprocessed (or speechless) session serves just its session frames;
     processing status stays introspectable via `.../artifacts?kind=speech-map`.
+    Location points come straight from the stored segments — no pipeline —
+    so they appear live while the session is still streaming.
     """
     rows = await pipe.artifacts.list_for_session(
         session.id, from_ms=window.from_ms, to_ms=window.to_ms, limit=_MAX_TIMELINE_ARTIFACTS
     )
+    segments = [
+        segment
+        for resource in timeline_events.timeline_resources()
+        for segment in await pipe.segments.list_for_session(
+            session.id, resource=resource, limit=_MAX_TIMELINE_ARTIFACTS
+        )
+    ]
     labels = await pipe.speakers.labels_for_session(session.id)
     speaker_map = {
         label.speaker: label for label in labels if label.speaker_id is not None
     }
     events = timeline_events.assemble(
-        session, rows, from_ms=window.from_ms, to_ms=window.to_ms, speakers=speaker_map
+        session,
+        rows,
+        segments=segments,
+        from_ms=window.from_ms,
+        to_ms=window.to_ms,
+        speakers=speaker_map,
     )
     sliced = events[paging.offset : paging.offset + paging.probe_limit]
     return Page.build(sliced, paging, lambda event: event)

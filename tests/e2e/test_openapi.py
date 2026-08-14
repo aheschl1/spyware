@@ -92,6 +92,7 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "transcript",
         "audio-tag",
         "sound-span",
+        "location-point",
     }
     assert "label" in schemas["SoundSpanEvent"]["properties"]
     # Transcripts never leak the storage layout; the full text is inline and
