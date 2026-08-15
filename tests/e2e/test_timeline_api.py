@@ -12,13 +12,35 @@ DEVICE_TIME = "2026-01-01T00:00:00+00:00"
 
 
 async def _seed(session_id) -> dict[str, str]:
-    """A speech map, two spans, and a transcript on the first span."""
+    """A speech map, two spans, and a transcript on the first span.
+
+    The map is what diarize discovers, and the live worker would republish
+    over the seeds mid-test (deleting the transcript — diarize's idiom clears
+    transcribe artifacts too). A pre-succeeded diarize job on the map marks
+    that session as already-processed, so the worker leaves it alone.
+    """
+    from database.schema.jobs import JobCreate
+
     async with DatabasePipe() as pipe:
-        await pipe.artifacts.create(
+        speech_map = await pipe.artifacts.create(
             ArtifactCreate(
                 pipeline="speech-detect", kind="speech-map",
                 session_id=session_id, metadata={"spans": 2},
             )
+        )
+        guard = await pipe.jobs.enqueue(
+            JobCreate(
+                pipeline="diarize", session_id=session_id,
+                artifact_id=speech_map.id,
+                dedup_key=f"diarize:map:{speech_map.id}",
+            )
+        )
+        assert guard is not None
+        # jobs.succeed only flips running jobs; this one must never run.
+        await pipe.connection.execute(
+            "UPDATE processing_jobs SET status = 'succeeded', finished_at = now() "
+            "WHERE id = %s",
+            (guard.id,),
         )
         span_a = await pipe.artifacts.create(
             ArtifactCreate(
