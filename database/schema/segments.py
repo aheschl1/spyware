@@ -12,6 +12,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from resources import Resource
+
 
 class ResourceSegment(BaseModel):
     model_config = ConfigDict(frozen=True)
@@ -19,7 +21,7 @@ class ResourceSegment(BaseModel):
     id: UUID
     session_id: UUID
     user_id: UUID
-    resource: str
+    resource: Resource
     sequence: int
     ingested_at: datetime
     captured_at: datetime | None = None
@@ -53,7 +55,7 @@ class SegmentCreate(BaseModel):
     id: UUID
     session_id: UUID
     user_id: UUID
-    resource: str = "audio"
+    resource: Resource = Resource.AUDIO
     byte_size: int
     content_type: str = "application/octet-stream"
     bucket: str | None = None

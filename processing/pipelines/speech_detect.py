@@ -18,6 +18,7 @@ from database.schema.jobs import Job, JobCreate
 from processing import vad
 from processing.base import Pipeline
 from processing.config import get_settings
+from resources import Resource
 from services import stitch, timeline
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ _WINDOW_MS = 30_000
 
 class SpeechDetectPipeline(Pipeline):
     name = "speech-detect"
-    resource = "audio"
+    resource = Resource.AUDIO
 
     async def setup(self) -> None:
         self._settings = get_settings()

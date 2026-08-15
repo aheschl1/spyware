@@ -18,6 +18,7 @@ from uuid import UUID
 
 from database.pipe import DatabasePipe
 from database.schema.segments import ResourceSegment
+from resources import Resource
 from resources.audio import AudioAttrs
 from services import stitch
 from storage.pipe import BlobPipe
@@ -102,7 +103,7 @@ async def load_timeline(session_id: UUID) -> SessionTimeline | None:
     """
     async with DatabasePipe() as pipe:
         segments = await pipe.segments.list_for_session(
-            session_id, resource="audio", limit=_MAX_SEGMENTS
+            session_id, resource=Resource.AUDIO, limit=_MAX_SEGMENTS
         )
     if not segments:
         return None
