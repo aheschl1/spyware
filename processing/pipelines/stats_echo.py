@@ -13,8 +13,9 @@ from processing.base import Pipeline
 
 
 class StatsEchoPipeline(Pipeline):
+    # Session-scoped like its parent: it echoes stats, whatever resources
+    # they cover.
     name = "stats-echo"
-    resource = "audio"
 
     async def discover(self, limit: int) -> Sequence[JobCreate]:
         return ()  # chained-only: work arrives via another pipeline's callback

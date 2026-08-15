@@ -12,6 +12,7 @@ from psycopg.types.json import Jsonb
 
 from database.exceptions import DuplicateSequenceError, NotFoundError
 from database.repos.base import BaseRepo
+from resources import Resource
 from database.schema.segments import (
     ResourceSegment,
     SegmentCreate,
@@ -156,7 +157,7 @@ class SegmentsRepo(BaseRepo):
         )
 
     async def stitch_fingerprint(
-        self, session_id: UUID, resource: str = "audio"
+        self, session_id: UUID, resource: Resource = Resource.AUDIO
     ) -> SegmentSetFingerprint:
         """A cheap change-token for a session's segment set of one resource.
 

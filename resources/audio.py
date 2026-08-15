@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from resources.base import ResourceType, ResourceValidationError, ValidatedChunk
+from resources.base import Resource, ResourceType, ResourceValidationError, ValidatedChunk
 
 
 class AudioAttrs(BaseModel):
@@ -34,7 +34,7 @@ class AudioAttrs(BaseModel):
 
 
 class AudioResource(ResourceType):
-    name = "audio"
+    name = Resource.AUDIO
     storage = "blob"
     default_content_type = "application/octet-stream"
     renderable = True

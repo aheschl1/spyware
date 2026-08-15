@@ -18,7 +18,7 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from resources.base import ResourceType, ResourceValidationError, ValidatedChunk
+from resources.base import Resource, ResourceType, ResourceValidationError, ValidatedChunk
 
 # One batch per periodic upload; far above any sane cadence, well below
 # anything that could strain a JSONB row.
@@ -45,7 +45,7 @@ class LocationPayload(BaseModel):
 
 
 class LocationResource(ResourceType):
-    name = "location"
+    name = Resource.LOCATION
     storage = "inline"
     default_content_type = "application/json"
     wall_clock_queryable = True

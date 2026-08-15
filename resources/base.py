@@ -9,7 +9,21 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 from typing import Any, ClassVar, Literal
+
+
+class Resource(StrEnum):
+    """Every resource type the system knows.
+
+    The single source for internal typing (segment rows, pipeline
+    declarations); each member has exactly one :class:`ResourceType`
+    implementation in the registry. The streaming wire keeps plain strings —
+    an unknown name there is a per-chunk protocol error, not a crash.
+    """
+
+    AUDIO = "audio"
+    LOCATION = "location"
 
 
 class ResourceValidationError(Exception):
@@ -41,7 +55,7 @@ class ResourceType(ABC):
     column value.
     """
 
-    name: ClassVar[str]
+    name: ClassVar[Resource]
     storage: ClassVar[Literal["blob", "inline"]]
     default_content_type: ClassVar[str]
 

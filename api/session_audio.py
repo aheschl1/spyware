@@ -19,6 +19,7 @@ from uuid import UUID
 
 from services import stitch
 from database.pipe import DatabasePipe
+from resources import Resource
 from database.schema.segments import ResourceSegment, SegmentSetFingerprint
 from database.schema.sessions import RecordingSession
 from storage.pipe import BlobPipe
@@ -121,7 +122,7 @@ async def resolve_session_audio(session: RecordingSession) -> SessionAudio | Non
         if cached is not None:
             return cached
         segments = await pipe.segments.list_for_session(
-            session.id, resource="audio", limit=_MAX_STITCH_SEGMENTS
+            session.id, resource=Resource.AUDIO, limit=_MAX_STITCH_SEGMENTS
         )
 
     # Pure planning plus a 44-byte header fetch, all off the database connection.

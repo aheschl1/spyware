@@ -35,6 +35,7 @@ from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.classifier import ClassifiedWindow, Classifier
 from processing.config import get_settings
+from resources import Resource
 from services import stitch, timeline
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,7 @@ def span_starts(total_ms: int, *, span_ms: int, overlap_ms: int) -> list[int]:
 
 class AudioTagPipeline(Pipeline):
     name = "audio-tag"
-    resource = "audio"
+    resource = Resource.AUDIO
 
     async def setup(self) -> None:
         self._settings = get_settings()

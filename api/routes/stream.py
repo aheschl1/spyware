@@ -41,7 +41,7 @@ import resources
 from database.exceptions import DuplicateSequenceError, NotFoundError, SessionEndedError
 from database.pipe import DatabasePipe
 from database.schema.sessions import RecordingSession
-from resources import ResourceValidationError
+from resources import Resource, ResourceValidationError
 from services.segments import ChecksumMismatchError, stream_segment
 from storage.pipe import BlobPipe
 from storage.s3 import S3BlobStore
@@ -555,7 +555,7 @@ async def _ingest_chunk(
 
     # The hello defaults are PCM parameters — they apply to audio chunks only.
     defaults = hello.defaults
-    if header.resource == "audio":
+    if header.resource == Resource.AUDIO:
         content_type = header.content_type or defaults.content_type
         attrs = {
             "codec": defaults.codec,

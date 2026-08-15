@@ -8,6 +8,7 @@ the registry instead of assuming audio.
 """
 
 from resources.base import (
+    Resource,
     ResourceType,
     ResourceValidationError,
     ValidatedChunk,
@@ -16,6 +17,7 @@ from resources.registry import RESOURCES, get, names
 
 __all__ = [
     "RESOURCES",
+    "Resource",
     "ResourceType",
     "ResourceValidationError",
     "ValidatedChunk",

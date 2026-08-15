@@ -28,6 +28,7 @@ from database.exceptions import (
 from database.pipe import DatabasePipe
 from database.schema.segments import ResourceSegment, SegmentCreate
 from database.schema.sessions import RecordingSession
+from resources import Resource
 from resources.base import ValidatedChunk
 from storage.keys import segment_key, session_prefix, suffix_for
 from storage.pipe import BlobPipe
@@ -52,7 +53,7 @@ async def ingest_segment(
     session_id: UUID,
     data: bytes,
     *,
-    resource: str = "audio",
+    resource: str = Resource.AUDIO,
     content_type: str | None = None,
     filename: str | None = None,
     sequence: int | None = None,
@@ -159,7 +160,7 @@ async def stream_segment(
     sequence: int,
     data: bytes,
     *,
-    resource: str = "audio",
+    resource: str = Resource.AUDIO,
     content_type: str | None = None,
     captured_at: datetime | None = None,
     duration_ms: int | None = None,
