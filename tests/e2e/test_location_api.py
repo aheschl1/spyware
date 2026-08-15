@@ -134,7 +134,10 @@ async def test_wall_clock_query_spans_sessions(
 
     windowed = await client.get(
         "/v1/resources/location/points",
-        params={"from": "2026-08-14T14:00:00Z", "to": "2026-08-14T16:00:00Z"},
+        params={
+            "from_ms": _ms(datetime(2026, 8, 14, 14, 0, tzinfo=UTC)),
+            "to_ms": _ms(datetime(2026, 8, 14, 16, 0, tzinfo=UTC)),
+        },
         headers=account.headers,
     )
     assert [i["lat"] for i in windowed.json()["items"]] == [52.0]
@@ -155,12 +158,12 @@ async def test_wall_clock_query_spans_sessions(
     assert foreign.json()["items"] == []
 
 
-async def test_wall_clock_query_rejects_naive_datetimes(
+async def test_wall_clock_query_rejects_negative_window(
     client: httpx.AsyncClient, account: Account
 ) -> None:
     response = await client.get(
         "/v1/resources/location/points",
-        params={"from": "2026-08-14T14:00:00"},
+        params={"from_ms": -1},
         headers=account.headers,
     )
     assert response.status_code == 422
@@ -182,7 +185,7 @@ async def test_wall_clock_prefilter_trims_batch_edges(
 
     inside = await client.get(
         "/v1/resources/location/points",
-        params={"from": "2026-08-14T12:01:00Z", "to": "2026-08-14T12:03:00Z"},
+        params={"from_ms": base + 60_000, "to_ms": base + 180_000},
         headers=account.headers,
     )
     assert [i["lat"] for i in inside.json()["items"]] == [52.0, 53.0]

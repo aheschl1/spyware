@@ -888,7 +888,7 @@
           "sessions"
         ],
         "summary": "A session's location points by timeline position",
-        "description": "The session's fixes in timeline order, window half-open\n``[from_ms, to_ms)`` \u2014 adjacent windows partition the stream. A session\nwith no location resource yields an empty page, like an unprocessed\nsession's timeline serves just its frames.",
+        "description": "The session's fixes in timeline order, windowed like the timeline \u2014\nadjacent windows partition the stream. A session with no location\nresource yields an empty page, like an unprocessed session's timeline\nserves just its frames.",
         "operationId": "list_session_location_points_v1_sessions__session_id__resources_location_points_get",
         "security": [
           {
@@ -907,42 +907,6 @@
               "title": "Session Id"
             },
             "description": "A recording session belonging to you."
-          },
-          {
-            "name": "from_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only points at/after this time.",
-              "title": "From Ms"
-            },
-            "description": "Only points at/after this time."
-          },
-          {
-            "name": "to_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only points before this time.",
-              "title": "To Ms"
-            },
-            "description": "Only points before this time."
           },
           {
             "name": "limit",
@@ -965,6 +929,40 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
             }
           }
         ],
@@ -1075,44 +1073,6 @@
             "description": "Only artifacts of this kind."
           },
           {
-            "name": "from_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only span artifacts overlapping at/after this time.",
-              "title": "From Ms"
-            },
-            "description": "Only span artifacts overlapping at/after this time."
-          },
-          {
-            "name": "to_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only span artifacts overlapping before this time.",
-              "title": "To Ms"
-            },
-            "description": "Only span artifacts overlapping before this time."
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1133,6 +1093,40 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
             }
           }
         ],
@@ -1207,44 +1201,6 @@
             "description": "A recording session belonging to you."
           },
           {
-            "name": "from_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only events at/after this time.",
-              "title": "From Ms"
-            },
-            "description": "Only events at/after this time."
-          },
-          {
-            "name": "to_ms",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "minimum": 0
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only events before this time.",
-              "title": "To Ms"
-            },
-            "description": "Only events before this time."
-          },
-          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1265,6 +1221,40 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
             }
           }
         ],
@@ -1843,7 +1833,7 @@
           "resources"
         ],
         "summary": "Query your location by wall-clock time",
-        "description": "Every stored fix across your sessions, oldest first.\n\nThe window is half-open ``[from, to)`` on the fix's ``captured_at``;\ntimestamps must carry a timezone (naive ones are rejected). Like the\nsearch routes, ``session_id`` narrows within your own data rather than\n404ing on someone else's id.",
+        "description": "Every stored fix across your sessions, oldest first.\n\nThe window is the same `from_ms`/`to_ms` range every timeline route\ntakes, read as **epoch milliseconds** here \u2014 there is no single session\nto be relative to, and it is the unit location payloads already carry in\n``t``. Half-open on the fix's ``captured_at``. Like the search routes,\n``session_id`` narrows within your own data rather than 404ing on\nsomeone else's id.",
         "operationId": "list_location_points_v1_resources_location_points_get",
         "security": [
           {
@@ -1851,44 +1841,6 @@
           }
         ],
         "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only points at/after this instant.",
-              "title": "From"
-            },
-            "description": "Only points at/after this instant."
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only points before this instant.",
-              "title": "To"
-            },
-            "description": "Only points before this instant."
-          },
           {
             "name": "session_id",
             "in": "query",
@@ -1929,6 +1881,40 @@
               "minimum": 0,
               "default": 0,
               "title": "Offset"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
             }
           }
         ],

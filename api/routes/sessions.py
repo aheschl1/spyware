@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from api import session_audio, timeline_events
 from services import stitch
-from api.deps import CurrentUser, OwnedSession, Paging, Pipe, PlayableSession
+from api.deps import CurrentUser, OwnedSession, Paging, Pipe, PlayableSession, Range
 from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.artifacts import ArtifactRead
 from api.schema.auth import PlaybackTokenRead
@@ -148,18 +148,17 @@ async def list_session_location_points(
     session: OwnedSession,
     pipe: Pipe,
     paging: Paging,
-    from_ms: int | None = Query(None, description="Only points at/after this time."),
-    to_ms: int | None = Query(None, description="Only points before this time."),
+    window: Range,
 ) -> Page[LocationPointRead]:
-    """The session's fixes in timeline order, window half-open
-    ``[from_ms, to_ms)`` — adjacent windows partition the stream. A session
-    with no location resource yields an empty page, like an unprocessed
-    session's timeline serves just its frames.
+    """The session's fixes in timeline order, windowed like the timeline —
+    adjacent windows partition the stream. A session with no location
+    resource yields an empty page, like an unprocessed session's timeline
+    serves just its frames.
     """
     rows = await pipe.locations.points_for_session(
         session.id,
-        from_ms=from_ms,
-        to_ms=to_ms,
+        from_ms=window.from_ms,
+        to_ms=window.to_ms,
         limit=paging.probe_limit,
         offset=paging.offset,
     )
@@ -171,14 +170,9 @@ async def list_session_artifacts(
     session: OwnedSession,
     pipe: Pipe,
     paging: Paging,
+    window: Range,
     pipeline: str | None = Query(None, description="Only artifacts of this pipeline."),
     kind: str | None = Query(None, description="Only artifacts of this kind."),
-    from_ms: int | None = Query(
-        None, ge=0, description="Only span artifacts overlapping at/after this time."
-    ),
-    to_ms: int | None = Query(
-        None, ge=0, description="Only span artifacts overlapping before this time."
-    ),
 ) -> Page[ArtifactRead]:
     """What the processing tiers attached to this session, in timeline order.
 
@@ -189,8 +183,8 @@ async def list_session_artifacts(
         session.id,
         pipeline=pipeline,
         kind=kind,
-        from_ms=from_ms,
-        to_ms=to_ms,
+        from_ms=window.from_ms,
+        to_ms=window.to_ms,
         limit=paging.probe_limit,
         offset=paging.offset,
     )
@@ -202,8 +196,7 @@ async def get_session_timeline(
     session: OwnedSession,
     pipe: Pipe,
     paging: Paging,
-    from_ms: int | None = Query(None, ge=0, description="Only events at/after this time."),
-    to_ms: int | None = Query(None, ge=0, description="Only events before this time."),
+    window: Range,
 ) -> Page[TimelineEvent]:
     """What happened when: session frames, speech starts/ends, transcripts,
     sound tags and the sound spans built from them.
@@ -220,17 +213,17 @@ async def get_session_timeline(
     processing status stays introspectable via `.../artifacts?kind=speech-map`.
     """
     rows = await pipe.artifacts.list_for_session(
-        session.id, from_ms=from_ms, to_ms=to_ms, limit=_MAX_TIMELINE_ARTIFACTS
+        session.id, from_ms=window.from_ms, to_ms=window.to_ms, limit=_MAX_TIMELINE_ARTIFACTS
     )
     labels = await pipe.speakers.labels_for_session(session.id)
     speaker_map = {
         label.speaker: label for label in labels if label.speaker_id is not None
     }
     events = timeline_events.assemble(
-        session, rows, from_ms=from_ms, to_ms=to_ms, speakers=speaker_map
+        session, rows, from_ms=window.from_ms, to_ms=window.to_ms, speakers=speaker_map
     )
-    window = events[paging.offset : paging.offset + paging.probe_limit]
-    return Page.build(window, paging, lambda event: event)
+    sliced = events[paging.offset : paging.offset + paging.probe_limit]
+    return Page.build(sliced, paging, lambda event: event)
 
 
 @router.post("/{session_id}/transcripts/{artifact_id}", summary="Edit a transcript's text")
