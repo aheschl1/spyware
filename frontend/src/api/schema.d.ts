@@ -267,10 +267,10 @@ export interface paths {
         };
         /**
          * A session's location points by timeline position
-         * @description The session's fixes in timeline order, window half-open
-         *     ``[from_ms, to_ms)`` — adjacent windows partition the stream. A session
-         *     with no location resource yields an empty page, like an unprocessed
-         *     session's timeline serves just its frames.
+         * @description The session's fixes in timeline order, windowed like the timeline —
+         *     adjacent windows partition the stream. A session with no location
+         *     resource yields an empty page, like an unprocessed session's timeline
+         *     serves just its frames.
          */
         get: operations["list_session_location_points_v1_sessions__session_id__resources_location_points_get"];
         put?: never;
@@ -487,10 +487,12 @@ export interface paths {
          * Query your location by wall-clock time
          * @description Every stored fix across your sessions, oldest first.
          *
-         *     The window is half-open ``[from, to)`` on the fix's ``captured_at``;
-         *     timestamps must carry a timezone (naive ones are rejected). Like the
-         *     search routes, ``session_id`` narrows within your own data rather than
-         *     404ing on someone else's id.
+         *     The window is the same `from_ms`/`to_ms` range every timeline route
+         *     takes, read as **epoch milliseconds** here — there is no single session
+         *     to be relative to, and it is the unit location payloads already carry in
+         *     ``t``. Half-open on the fix's ``captured_at``. Like the search routes,
+         *     ``session_id`` narrows within your own data rather than 404ing on
+         *     someone else's id.
          */
         get: operations["list_location_points_v1_resources_location_points_get"];
         put?: never;
@@ -3241,12 +3243,10 @@ export interface operations {
     list_session_location_points_v1_sessions__session_id__resources_location_points_get: {
         parameters: {
             query?: {
-                /** @description Only points at/after this time. */
-                from_ms?: number | null;
-                /** @description Only points before this time. */
-                to_ms?: number | null;
                 limit?: number;
                 offset?: number;
+                from_ms?: number | null;
+                to_ms?: number | null;
             };
             header?: never;
             path: {
@@ -3302,12 +3302,10 @@ export interface operations {
                 pipeline?: string | null;
                 /** @description Only artifacts of this kind. */
                 kind?: string | null;
-                /** @description Only span artifacts overlapping at/after this time. */
-                from_ms?: number | null;
-                /** @description Only span artifacts overlapping before this time. */
-                to_ms?: number | null;
                 limit?: number;
                 offset?: number;
+                from_ms?: number | null;
+                to_ms?: number | null;
             };
             header?: never;
             path: {
@@ -3359,12 +3357,10 @@ export interface operations {
     get_session_timeline_v1_sessions__session_id__timeline_get: {
         parameters: {
             query?: {
-                /** @description Only events at/after this time. */
-                from_ms?: number | null;
-                /** @description Only events before this time. */
-                to_ms?: number | null;
                 limit?: number;
                 offset?: number;
+                from_ms?: number | null;
+                to_ms?: number | null;
             };
             header?: never;
             path: {
@@ -3781,14 +3777,12 @@ export interface operations {
     list_location_points_v1_resources_location_points_get: {
         parameters: {
             query?: {
-                /** @description Only points at/after this instant. */
-                from?: string | null;
-                /** @description Only points before this instant. */
-                to?: string | null;
                 /** @description Only points of this session (foreign ids match nothing). */
                 session_id?: string | null;
                 limit?: number;
                 offset?: number;
+                from_ms?: number | null;
+                to_ms?: number | null;
             };
             header?: never;
             path?: never;

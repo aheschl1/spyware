@@ -11,7 +11,7 @@ from uuid import UUID
 from fastapi import Depends, HTTPException, Path, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from api.schema.common import PageParams
+from api.schema.common import PageParams, RangeParams
 from database.pipe import DatabasePipe
 from database.schema.segments import ResourceSegment
 from database.schema.sessions import RecordingSession
@@ -174,3 +174,4 @@ async def get_owned_speaker(
 OwnedSpeaker = Annotated[Speaker, Depends(get_owned_speaker)]
 
 Paging = Annotated[PageParams, Depends()]
+Range = Annotated[RangeParams, Depends()]
