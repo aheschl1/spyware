@@ -68,6 +68,10 @@ _gpu_lock = threading.Lock()
 # it, and its stream steps serialize on their own lock so a long batch
 # transcription cannot starve partials (CUDA interleaves the kernels).
 _streaming_model = None
+# The `streaming` module, imported alongside the GPU stack in the loader
+# thread: it pulls torch/nemo, and importing that at module scope would
+# delay the port bind past the compose healthcheck's first probes.
+_streaming = None
 _streaming_state = "loading" if STREAMING_ENABLED else "disabled"
 _streaming_error = ""
 _streaming_gpu_lock = threading.Lock()
@@ -116,16 +120,17 @@ def _load_models() -> None:
 
 
 def _load_streaming() -> None:
-    global _streaming_model, _streaming_state, _streaming_error
+    global _streaming, _streaming_model, _streaming_state, _streaming_error
     try:
         logger.info("loading streaming model %s ...", STREAMING_ID)
         from nemo.collections.asr.models import ASRModel
 
-        from streaming import configure_streaming
+        import streaming
 
         model = ASRModel.from_pretrained(STREAMING_ID).eval().to("cuda")
         right = int(STREAMING_RIGHT_CONTEXT) if STREAMING_RIGHT_CONTEXT else None
-        configure_streaming(model, right)
+        streaming.configure_streaming(model, right)
+        _streaming = streaming
         _streaming_model = model
         _streaming_state = "ok"
         logger.info("streaming model ready (att_context %s)", model.encoder.att_context_size)
@@ -346,8 +351,6 @@ async def stream(ws: WebSocket) -> None:
     16 kHz mono s16le frames; ``{"type": "end"}`` flushes the lookahead and
     returns the final. Partials are sent whenever the transcript grows.
     """
-    from streaming import SAMPLE_RATE, StreamingSession
-
     await ws.accept()
     if _streaming_state != "ok":
         await ws.send_json({"type": "error", "error": f"streaming {_streaming_status()}"})
@@ -357,13 +360,14 @@ async def stream(ws: WebSocket) -> None:
         hello = await ws.receive_json()
     except WebSocketDisconnect:
         return
-    if hello.get("sample_rate_hz") != SAMPLE_RATE or hello.get("channels", 1) != 1:
-        await ws.send_json(
-            {"type": "error", "error": f"{SAMPLE_RATE} Hz mono s16le required"}
-        )
+    rate = _streaming.SAMPLE_RATE
+    if hello.get("sample_rate_hz") != rate or hello.get("channels", 1) != 1:
+        await ws.send_json({"type": "error", "error": f"{rate} Hz mono s16le required"})
         await ws.close(code=1003)
         return
-    session = await asyncio.to_thread(StreamingSession, _streaming_model, _streaming_gpu_lock)
+    session = await asyncio.to_thread(
+        _streaming.StreamingSession, _streaming_model, _streaming_gpu_lock
+    )
     await ws.send_json({"type": "ready", "model": STREAMING_ID})
     last = ""
     try:

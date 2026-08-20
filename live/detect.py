@@ -12,12 +12,13 @@ import tempfile
 from collections import deque
 from functools import lru_cache
 from glob import glob
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import numpy as np
+import sherpa_onnx
+from pysilero_vad import SileroVoiceActivityDetector
 
-if TYPE_CHECKING:
-    from live.config import LiveSettings
+from live.config import LiveSettings
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class WakewordDetector(Protocol):
 
 
 def build_detector(
-    settings: "LiveSettings", sample_rate_hz: int, channels: int
+    settings: LiveSettings, sample_rate_hz: int, channels: int
 ) -> WakewordDetector:
     if settings.detector == "stub":
         return StubWakewordDetector(settings.wakeword)
@@ -79,7 +80,7 @@ class SherpaKeywordDetector:
     """
 
     def __init__(
-        self, settings: "LiveSettings", sample_rate_hz: int, channels: int
+        self, settings: LiveSettings, sample_rate_hz: int, channels: int
     ) -> None:
         self._sample_rate = sample_rate_hz
         self._channels = channels
@@ -93,8 +94,6 @@ class SherpaKeywordDetector:
         self._stream = self._spotter.create_stream()
         self._pending = bytearray()
         if settings.kws_vad_pregate and sample_rate_hz == KWS_SAMPLE_RATE:
-            from pysilero_vad import SileroVoiceActivityDetector
-
             self._vad = SileroVoiceActivityDetector()
         else:
             self._vad = None
@@ -157,8 +156,6 @@ class SilenceTracker:
     """Trailing-silence clock for an open gate window (16 kHz mono only)."""
 
     def __init__(self, threshold: float) -> None:
-        from pysilero_vad import SileroVoiceActivityDetector
-
         self._vad = SileroVoiceActivityDetector()
         self._threshold = threshold
         self._pending = bytearray()
@@ -184,8 +181,6 @@ def _downmix(pcm: bytes, channels: int) -> bytes:
 
 @lru_cache(maxsize=4)
 def _spotter(model_dir: str, wakeword: str, score: float, threshold: float, num_threads: int):
-    import sherpa_onnx
-
     if not model_dir:
         raise ValueError("LIVE_KWS_MODEL_DIR is required for the sherpa detector")
     return sherpa_onnx.KeywordSpotter(

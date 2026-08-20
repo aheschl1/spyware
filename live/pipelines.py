@@ -5,6 +5,9 @@ import json
 import logging
 from collections.abc import AsyncIterator
 
+import numpy as np
+import websockets
+
 from live.base import LiveFrame, LivePipeline, LiveSessionContext
 from live.config import get_settings
 
@@ -43,8 +46,6 @@ class TranscribePipeline(LivePipeline):
     name = "transcribe"
 
     async def run(self, ctx: LiveSessionContext, frames: AsyncIterator[LiveFrame]) -> None:
-        import websockets
-
         settings = get_settings()
         ctx.emit("started", {})
         try:
@@ -83,8 +84,6 @@ class TranscribePipeline(LivePipeline):
 def _to_16k_mono(pcm: bytes, sample_rate_hz: int, channels: int) -> bytes:
     if sample_rate_hz == 16_000 and channels == 1:
         return pcm
-    import numpy as np
-
     samples = np.frombuffer(pcm, dtype=np.int16)
     if channels > 1:
         samples = samples.reshape(-1, channels).mean(axis=1)

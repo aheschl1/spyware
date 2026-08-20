@@ -3,7 +3,8 @@
 import asyncio
 from uuid import uuid4
 
-from live.base import LivePipeline
+import live.gate
+from live.base import LiveFrame, LivePipeline
 from live.config import LiveSettings
 from live.detect import StubWakewordDetector
 from live.gate import WakewordGate
@@ -58,8 +59,6 @@ def gate(**overrides) -> tuple[WakewordGate, list]:
 
 
 async def _feed(target: WakewordGate, frames: list[bytes], start: int = 0) -> None:
-    from live.base import LiveFrame
-
     for offset, pcm in enumerate(frames):
         await target.feed(LiveFrame(sequence=start + offset, pcm=pcm))
 
@@ -129,8 +128,6 @@ class FakeSilenceTracker:
 
 
 async def test_silence_closes_window_before_cap(monkeypatch) -> None:
-    import live.gate
-
     monkeypatch.setattr(live.gate, "SilenceTracker", FakeSilenceTracker)
     target, events = gate(gate_silence_close_ms=6, gate_window_ms=1000)
     speech = b"\x01" * 64
@@ -143,8 +140,6 @@ async def test_silence_closes_window_before_cap(monkeypatch) -> None:
 
 
 async def test_silence_close_disabled_by_default(monkeypatch) -> None:
-    import live.gate
-
     monkeypatch.setattr(live.gate, "SilenceTracker", FakeSilenceTracker)
     target, _ = gate(gate_window_ms=1000)
     await _feed(target, [WAKE])

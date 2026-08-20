@@ -78,8 +78,6 @@ def stub_audio_services() -> Iterator[str]:
 @pytest.fixture(scope="session")
 def stub_stream_asr() -> Iterator[str]:
     """Fake streaming ASR websocket; yields the ws:// stream URL."""
-    import socket
-
     port = _free_port()
     process = subprocess.Popen(
         [sys.executable, "-m", "tests.e2e.stub_stream_asr", str(port)], cwd=REPO_ROOT

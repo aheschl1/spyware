@@ -11,7 +11,13 @@ from pathlib import Path
 import pytest
 
 from live.config import LiveSettings
-from live.detect import SilenceTracker, _greedy_tokens, _keywords_file, _model_file
+from live.detect import (
+    SilenceTracker,
+    _greedy_tokens,
+    _keywords_file,
+    _model_file,
+    build_detector,
+)
 
 KWS_MODEL_DIR = os.environ.get(
     "LIVE_KWS_MODEL_DIR",
@@ -66,8 +72,6 @@ def test_silence_tracker_buffers_partial_frames() -> None:
 
 @needs_model
 def test_sherpa_detector_ignores_silence_and_resets() -> None:
-    from live.detect import build_detector
-
     settings = LiveSettings(
         _env_file=None, detector="sherpa", kws_model_dir=KWS_MODEL_DIR
     )
@@ -80,8 +84,6 @@ def test_sherpa_detector_ignores_silence_and_resets() -> None:
 
 @needs_model
 def test_sherpa_detector_downmixes_stereo() -> None:
-    from live.detect import build_detector
-
     settings = LiveSettings(
         _env_file=None, detector="sherpa", kws_model_dir=KWS_MODEL_DIR
     )

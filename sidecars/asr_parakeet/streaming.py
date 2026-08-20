@@ -9,6 +9,12 @@ responsible for threading (``asyncio.to_thread``).
 import logging
 import threading
 
+import numpy as np
+import torch
+from nemo.collections.asr.parts.utils.streaming_utils import (
+    CacheAwareStreamingAudioBuffer,
+)
+
 logger = logging.getLogger("asr.streaming")
 
 SAMPLE_RATE = 16_000
@@ -29,11 +35,6 @@ def configure_streaming(model, right_context: int | None) -> None:
 
 class StreamingSession:
     def __init__(self, model, gpu_lock: threading.Lock) -> None:
-        import numpy as np  # noqa: F401  (torch/numpy live in the sidecar image)
-        from nemo.collections.asr.parts.utils.streaming_utils import (
-            CacheAwareStreamingAudioBuffer,
-        )
-
         self._model = model
         self._lock = gpu_lock
         self._buffer = CacheAwareStreamingAudioBuffer(
@@ -83,8 +84,6 @@ class StreamingSession:
         return self._text
 
     def _append(self, pcm: bytes) -> None:
-        import numpy as np
-
         samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
         # NeMo's buffer returns -1 (not the new id) from the very first
         # append, and passing -1 again would open a second stream — this
@@ -106,8 +105,6 @@ class StreamingSession:
         mid-stream we only pull once a full chunk is buffered, and the
         remainder is drained by ``finish``'s silence tail.
         """
-        import torch
-
         updated = None
         while self._buffer.buffer is not None:
             available = self._buffer.buffer.size(-1) - self._buffer.buffer_idx
