@@ -407,7 +407,10 @@ v2 audio stream (docs/processing-pipelines.md, *Live pipelines*) that publish
 ```
 
 `event` and `data` mean whatever the named effect says they mean (the stub
-counter emits `started` and `finished`). The compatibility contract:
+counter emits `started` and `finished`). The `transcribe` effect emits
+`started` on the wakeword trigger, `partial` then `final` with
+`{"text": ...}` as the streaming ASR decodes the gated window, and `error`
+if the sidecar is unreachable. The compatibility contract:
 
 - new event and effect types appear without a `version` bump; clients ignore
   types and effects they do not recognise;

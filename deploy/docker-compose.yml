@@ -39,6 +39,7 @@ x-app: &app
     PROCESSING_DIARIZER_BASE_URL: http://diar-pyannote:8000/v1
     PROCESSING_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
     API_CLASSIFIER_BASE_URL: http://audio-tagger:8000/v1
+    LIVE_TRANSCRIBE_URL: ws://asr-parakeet:8000/v1/audio/stream
   networks: [audio-net]
 
 # `required: false` so these resolve to a no-op when the profile is off.
@@ -83,6 +84,12 @@ services:
     # The default bind is 127.0.0.1 (api/main.py), which inside a container
     # means nothing else can reach it.
     command: ["python", "-m", "api", "--host", "0.0.0.0", "--port", "8000"]
+    # The wakeword model for LIVE_DETECTOR=sherpa. Point KWS_MODEL_HOST_DIR
+    # at an unpacked sherpa-onnx KWS zipformer and set LIVE_DETECTOR=sherpa +
+    # LIVE_KWS_MODEL_DIR=/models/kws in .env; with the stub detector the
+    # default empty mount is inert.
+    volumes:
+      - ${KWS_MODEL_HOST_DIR:-./kws-model}:/models/kws:ro
     depends_on:
       migrate: {condition: service_completed_successfully}
     healthcheck:
@@ -208,8 +215,14 @@ services:
     environment:
       HF_HOME: /root/.cache/huggingface
       # Free CUDA memory after this long idle; the next request blocks while
-      # the models reload. 0 keeps them resident.
+      # the models reload. 0 keeps them resident. The streaming model is
+      # exempt: it stays resident so live partials never eat a cold reload.
       IDLE_UNLOAD_SECONDS: ${SIDECAR_IDLE_UNLOAD_SECONDS:-1800}
+      ASR_STREAMING_ENABLED: ${ASR_STREAMING_ENABLED:-1}
+      # Lookahead in 80 ms encoder frames (13/6/1/0 = 1.12 s .. 80 ms added
+      # latency). 6 (560 ms) matches 13's accuracy in testing; 1 and 0 cut
+      # latency further but degrade the end-of-window flush.
+      ASR_STREAMING_RIGHT_CONTEXT: ${ASR_STREAMING_RIGHT_CONTEXT:-6}
     healthcheck:
       <<: *sidecar-healthcheck
       start_period: 300s

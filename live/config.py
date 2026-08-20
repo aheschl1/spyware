@@ -22,15 +22,39 @@ class LiveSettings(BaseSettings):
     socket_path: str = ""
     wakeword: str = "hey pipeline"
 
+    # Detector backend: "stub" matches the wakeword's UTF-8 bytes in the PCM
+    # (deterministic, for tests); "sherpa" is the real spotter and needs
+    # kws_model_dir pointing at a sherpa-onnx KWS zipformer model.
+    detector: str = "stub"
+    kws_model_dir: str = ""
+    kws_score: float = 1.5
+    kws_threshold: float = 0.25
+    kws_num_threads: int = 1
+    # Silero pre-gate in front of the spotter (16 kHz streams only): silence
+    # never reaches the transducer; a short pre-speech ring keeps late-flagged
+    # onsets intact.
+    kws_vad_pregate: bool = True
+    kws_vad_threshold: float = 0.5
+    kws_vad_hangover_ms: int = 480
+    kws_vad_prespeech_ms: int = 192
+
     # Audio handed to pipelines from just before the trigger, and how much
     # audio a gated window spans before the pipelines are finished.
     preroll_ms: int = 2000
     gate_window_ms: int = 30_000
+    # Close an open window after this much trailing non-speech (0 disables;
+    # the gate_window_ms cap always applies). 16 kHz mono streams only.
+    gate_silence_close_ms: int = 0
 
     # Bounded frame queues, both drop-oldest: the tap's per-connection send
     # queue and the per-pipeline feed inside the worker.
     tap_queue_frames: int = 256
     pipeline_queue_frames: int = 256
+
+    # The transcribe pipeline's sidecar websocket and how long to wait for
+    # the final transcript after a window closes.
+    transcribe_url: str = "ws://127.0.0.1:8033/v1/audio/stream"
+    transcribe_final_timeout_seconds: float = 10.0
 
     reconnect_backoff_seconds: float = 0.5
     reconnect_backoff_cap_seconds: float = 5.0

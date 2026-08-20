@@ -73,6 +73,49 @@ async def test_wakeword_triggers_counter_events(
     assert items[-1]["metadata"]["frames"]["last"] == 15
 
 
+HELLO_TRANSCRIBE = json.dumps(
+    {
+        "type": "hello",
+        "version": 2,
+        "defaults": {"codec": "pcm_s16le", "sample_rate_hz": 16000, "channels": 1},
+        "effects": ["transcribe"],
+    }
+)
+
+
+async def test_wakeword_triggers_transcribe_events(
+    server: str, client: httpx.AsyncClient, account: Account
+) -> None:
+    """The transcribe pipeline relays the stub sidecar's partial and final."""
+    session = await make_session(account)
+    frames = _pcm_frames(16)
+
+    async with _connect(server, session.id, account) as ws:
+        await ws.send(HELLO_TRANSCRIBE)
+        welcome = await _recv_until(ws, "welcome")
+        assert welcome["effects"] == ["transcribe"]
+
+        await ws.send(encode_audio_frame(0, _wake_frame()))
+        started = await _recv_until(ws, "effect")
+        assert (started["effect"], started["event"]) == ("transcribe", "started")
+
+        partial = await _recv_until(ws, "effect")
+        assert partial["event"] == "partial"
+        assert partial["data"]["text"] == "stub partial"
+
+        # 500ms window at 50ms frames: these close it and produce the final.
+        for sequence in range(1, 13):
+            await ws.send(encode_audio_frame(sequence, frames[sequence]))
+        final = await _recv_until(ws, "effect")
+        assert final["event"] == "final"
+        assert final["data"]["text"].startswith("stub final ")
+        assert int(final["data"]["text"].rsplit(" ", 1)[1]) >= 10 * FRAME_BYTES
+
+        await ws.send(FINISH)
+        events = await _drain_to_close(ws)
+    assert events[-1]["type"] == "bye"
+
+
 async def test_no_effects_requested_still_streams(
     server: str, client: httpx.AsyncClient, account: Account
 ) -> None:

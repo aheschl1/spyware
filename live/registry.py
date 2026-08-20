@@ -1,9 +1,9 @@
 """The explicit list of live pipelines, mirroring processing/registry.py."""
 
 from live.base import LivePipeline
-from live.pipelines import CountingPipeline
+from live.pipelines import CountingPipeline, TranscribePipeline
 
-LIVE_PIPELINES: tuple[type[LivePipeline], ...] = (CountingPipeline,)
+LIVE_PIPELINES: tuple[type[LivePipeline], ...] = (CountingPipeline, TranscribePipeline)
 
 _BY_NAME = {cls.name: cls for cls in LIVE_PIPELINES}
 

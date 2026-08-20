@@ -7,7 +7,7 @@ from typing import Any
 from live import registry
 from live.base import LiveFrame
 from live.config import LiveSettings
-from live.detect import StubWakewordDetector
+from live.detect import build_detector
 from live.gate import WakewordGate
 from live.protocol import MSG_EVENT, Event, SessionHello, encode_message
 
@@ -25,7 +25,7 @@ class SessionStream:
             cls for cls in registry.LIVE_PIPELINES if cls.name in hello.effects
         )
         self._gate = WakewordGate(
-            StubWakewordDetector(settings.wakeword),
+            build_detector(settings, hello.sample_rate_hz, hello.channels),
             settings,
             pipelines,
             session_id=hello.session_id,

@@ -429,22 +429,37 @@ frames under pressure and misses audio across a worker restart.
   worker is down frames simply drop as the tap reconnects with backoff.
 - Worker-side (`live/worker.py`, `live/sessions.py`), each connection gets a
   `SessionStream` holding a **wakeword gate** (`live/gate.py`): idle, it
-  feeds a detector (`live/detect.py` — a stub matching `LIVE_WAKEWORD`'s
-  bytes in the PCM, existing only so tests can trigger deterministically) and
-  a `LIVE_PREROLL_MS` ring; on a trigger it starts one instance of each
-  effects-enabled pipeline and feeds pre-roll then live frames until
-  `LIVE_GATE_WINDOW_MS` of audio has passed (silence-based close is a future
-  detector hook), then re-arms.
+  feeds a detector (`live/detect.py`) and a `LIVE_PREROLL_MS` ring; on a
+  trigger it starts one instance of each effects-enabled pipeline and feeds
+  pre-roll then live frames until `LIVE_GATE_SILENCE_CLOSE_MS` of trailing
+  non-speech (Silero VAD; 16 kHz mono streams, 0 disables) or
+  `LIVE_GATE_WINDOW_MS` of audio closes the window. Pipeline finalization
+  runs off the feed path so a slow finalizer never stalls the connection's
+  read loop; the gate re-arms once it completes.
+- The **detector** is selected by `LIVE_DETECTOR`: `stub` matches
+  `LIVE_WAKEWORD`'s bytes in the PCM (deterministic test triggering);
+  `sherpa` is real keyword spotting — a sherpa-onnx KWS zipformer transducer
+  (`LIVE_KWS_MODEL_DIR`, e.g. `sherpa-onnx-kws-zipformer-gigaspeech-3.3M`
+  from the k2-fsa release page) behind a Silero VAD pre-gate so silence
+  costs ~nothing (~1% of a core per active 16 kHz stream, CPU only). The
+  wakeword phrase is spelled into model tokens at startup — any phrase, no
+  training.
 - A **live pipeline** (`live/base.py`) is `async run(ctx, frames)` over an
   async iterator of PCM frames — it owns its loop, may await inference
   freely (the gate's bounded queue drops behind a slow consumer), and knows
   nothing about wakewords. `ctx.emit(event, data)` publishes an effect event.
   Register in `live/registry.py`; `live-counter` (`live/pipelines.py`) is the
-  stub template. A live pipeline may share its core code with a paired batch
-  pipeline (live transcription and batch transcription wrapping one
-  transcriber) — that pairing is still future work, as is the
-  follower-per-session pattern for live consumers that need the stores
-  rather than the socket.
+  stub template.
+- The **`transcribe`** pipeline streams its window to the ASR sidecar's
+  `/v1/audio/stream` websocket (`LIVE_TRANSCRIBE_URL`) and relays the
+  sidecar's messages as `partial`/`final` effect events (`{"text": ...}`),
+  with `started` on trigger and `error` if the sidecar is unreachable. The
+  sidecar decodes with the cache-aware streaming model (see
+  `sidecars/asr_parakeet/`), so partials trail speech by roughly the
+  configured encoder lookahead (`ASR_STREAMING_RIGHT_CONTEXT`), not by the
+  batch model's clip length. The follower-per-session pattern for live
+  consumers that need the stores rather than the socket is still future
+  work.
 
 `LIVE_*` environment (see `.env.example`): wakeword, socket path, pre-roll
 and window sizes, queue bounds, restart/shutdown tuning; `LIVE_ENABLED=false`
