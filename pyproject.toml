@@ -16,7 +16,11 @@ dependencies = [
     "pydantic-settings>=2.15.0",
     "pydantic[email]>=2.13.4",
     "pysilero-vad>=3.4.0",
+    "sherpa-onnx>=1.13.6",
+    "sherpa-onnx-core==1.13.6",
     "uvicorn[standard]>=0.52.1",
+    # The live transcribe pipeline's websocket client to the ASR sidecar.
+    "websockets>=17.0.1",
 ]
 
 [project.scripts]

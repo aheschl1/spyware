@@ -76,8 +76,36 @@ def stub_audio_services() -> Iterator[str]:
 
 
 @pytest.fixture(scope="session")
+def stub_stream_asr() -> Iterator[str]:
+    """Fake streaming ASR websocket; yields the ws:// stream URL."""
+    import socket
+
+    port = _free_port()
+    process = subprocess.Popen(
+        [sys.executable, "-m", "tests.e2e.stub_stream_asr", str(port)], cwd=REPO_ROOT
+    )
+    deadline = time.monotonic() + SERVER_BOOT_TIMEOUT
+    try:
+        while True:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                    break
+            except OSError:
+                pass
+            assert time.monotonic() < deadline, "stub streaming asr did not start"
+            time.sleep(0.1)
+        yield f"ws://127.0.0.1:{port}/v1/audio/stream"
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+@pytest.fixture(scope="session")
 def test_env(
-    postgres: PostgresContainer, minio: MinioContainer, stub_audio_services: str
+    postgres: PostgresContainer,
+    minio: MinioContainer,
+    stub_audio_services: str,
+    stub_stream_asr: str,
 ) -> dict[str, str]:
     """Point every DATABASE_*/STORAGE_* variable at the containers.
 
@@ -127,6 +155,8 @@ def test_env(
         "LIVE_WAKEWORD": "wakemarker",
         "LIVE_PREROLL_MS": "200",
         "LIVE_GATE_WINDOW_MS": "500",
+        "LIVE_TRANSCRIBE_URL": stub_stream_asr,
+        "LIVE_TRANSCRIBE_FINAL_TIMEOUT_SECONDS": "5",
         "API_SESSION_STALE_SECONDS": "300",
         # Effectively parks the server's sweeper so test_stream can drive
         # end_stale deterministically.

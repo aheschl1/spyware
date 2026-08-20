@@ -80,6 +80,7 @@ async def test_trigger_delivers_preroll_then_window() -> None:
 
     await _feed(target, [FRAME] * 5, start=4)  # fills the 10ms window
     assert not target.active
+    await target.close()  # finalization runs off the feed path; wait for it
     assert pipeline.done
     # Pre-roll (2 frames incl. the wake frame) plus the 5 window frames.
     assert [frame.sequence for frame in pipeline.frames] == [2, 3, 4, 5, 6, 7, 8]
@@ -98,6 +99,7 @@ async def test_rearms_after_window() -> None:
     await _feed(target, [WAKE])
     await _feed(target, [FRAME] * 5, start=1)
     assert not target.active
+    await target.close()  # wait out finalization; the gate re-arms after it
     await _feed(target, [WAKE], start=6)
     assert target.active
     assert len(RecordingPipeline.instances) == 2
@@ -113,6 +115,42 @@ async def test_close_finishes_open_window() -> None:
     assert not target.active
     assert RecordingPipeline.instances[0].done
     assert ("rec", "finished", {"frames": 2}) in events
+
+
+class FakeSilenceTracker:
+    """Deterministic stand-in: zero bytes are silence, anything else speech."""
+
+    def __init__(self, threshold: float) -> None:
+        self.silence_ms = 0
+
+    def feed(self, pcm: bytes) -> int:
+        self.silence_ms = 0 if any(pcm) else self.silence_ms + len(pcm) // 32
+        return self.silence_ms
+
+
+async def test_silence_closes_window_before_cap(monkeypatch) -> None:
+    import live.gate
+
+    monkeypatch.setattr(live.gate, "SilenceTracker", FakeSilenceTracker)
+    target, events = gate(gate_silence_close_ms=6, gate_window_ms=1000)
+    speech = b"\x01" * 64
+    await _feed(target, [WAKE, speech, speech])
+    assert target.active
+    await _feed(target, [FRAME] * 4, start=3)  # 8ms of zeros >= the 6ms close
+    assert not target.active
+    await target.close()
+    assert [event for _, event, _ in events] == ["started", "finished"]
+
+
+async def test_silence_close_disabled_by_default(monkeypatch) -> None:
+    import live.gate
+
+    monkeypatch.setattr(live.gate, "SilenceTracker", FakeSilenceTracker)
+    target, _ = gate(gate_window_ms=1000)
+    await _feed(target, [WAKE])
+    await _feed(target, [FRAME] * 20, start=1)  # 40ms of zeros, window stays open
+    assert target.active
+    await target.close()
 
 
 async def test_slow_pipeline_drops_frames_without_stalling() -> None:

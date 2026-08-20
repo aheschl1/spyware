@@ -7,6 +7,8 @@ back as clip-relative ms from either model — parakeet's are native TDT,
 whisper's are faster-whisper word timestamps.
 
     POST /v1/audio/transcriptions?model=...   multipart file -> {"text", "words", ...}
+    WS   /v1/audio/stream                     hello JSON, then 16 kHz mono s16le
+                                              frames in / partial+final JSON out
     GET  /v1/models                           the loaded model ids
     GET  /health                              503 until BOTH models are loaded;
                                               200 "idle-unloaded" after eviction
@@ -20,6 +22,10 @@ long without inference; the next request blocks while the models reload
 (callers must budget their timeout for that, not just a contended GPU).
 Whisper is CTranslate2, not torch: its memory frees on object destruction,
 untouched by torch.cuda.empty_cache().
+
+The streaming model (cache-aware nemotron) is exempt from idle unloading:
+a reload mid-conversation is exactly the cold-start the live path cannot
+absorb, and it only holds ~2.5 GB resident.
 """
 
 import asyncio
@@ -30,7 +36,7 @@ import tempfile
 import threading
 import time
 
-from fastapi import FastAPI, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 PARAKEET_ID = os.environ.get("ASR_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
@@ -44,6 +50,11 @@ WHISPER_COMPUTE = os.environ.get("ASR_WHISPER_COMPUTE", "int8_float16")
 # resident forever.
 IDLE_UNLOAD_SECONDS = int(os.environ.get("IDLE_UNLOAD_SECONDS", "0"))
 _WATCHDOG_TICK_SECONDS = 30
+STREAMING_ENABLED = os.environ.get("ASR_STREAMING_ENABLED", "1") == "1"
+STREAMING_ID = os.environ.get("ASR_STREAMING_MODEL", "nvidia/nemotron-speech-streaming-en-0.6b")
+# Encoder lookahead in 80 ms frames; the model accepts 13/6/1/0 (1.12 s down
+# to 80 ms of added latency). Empty uses the checkpoint default (13).
+STREAMING_RIGHT_CONTEXT = os.environ.get("ASR_STREAMING_RIGHT_CONTEXT", "")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("asr")
@@ -53,6 +64,13 @@ app = FastAPI(title="asr-parakeet")
 _models: dict[str, object] = {}
 _load_errors: dict[str, str] = {}
 _gpu_lock = threading.Lock()
+# The streaming model lives outside _models: the idle watchdog never evicts
+# it, and its stream steps serialize on their own lock so a long batch
+# transcription cannot starve partials (CUDA interleaves the kernels).
+_streaming_model = None
+_streaming_state = "loading" if STREAMING_ENABLED else "disabled"
+_streaming_error = ""
+_streaming_gpu_lock = threading.Lock()
 # Load/unload transitions. The watchdog only tries _gpu_lock without
 # blocking while holding _lifecycle, so the two locks cannot deadlock.
 _lifecycle = threading.Lock()
@@ -95,6 +113,26 @@ def _load_models() -> None:
     _state = "loaded" if all(key in _models for key in _expected()) else "failed"
     if _state == "loaded":
         _last_used = time.monotonic()
+
+
+def _load_streaming() -> None:
+    global _streaming_model, _streaming_state, _streaming_error
+    try:
+        logger.info("loading streaming model %s ...", STREAMING_ID)
+        from nemo.collections.asr.models import ASRModel
+
+        from streaming import configure_streaming
+
+        model = ASRModel.from_pretrained(STREAMING_ID).eval().to("cuda")
+        right = int(STREAMING_RIGHT_CONTEXT) if STREAMING_RIGHT_CONTEXT else None
+        configure_streaming(model, right)
+        _streaming_model = model
+        _streaming_state = "ok"
+        logger.info("streaming model ready (att_context %s)", model.encoder.att_context_size)
+    except Exception as exc:
+        _streaming_error = f"{type(exc).__name__}: {exc}"
+        _streaming_state = "failed"
+        logger.exception("streaming model load failed")
 
 
 def _ensure_loaded(key: str) -> dict[str, object]:
@@ -140,27 +178,41 @@ def _idle_watchdog() -> None:
                 _gpu_lock.release()
 
 
+def _load_all() -> None:
+    _load_models()
+    if STREAMING_ENABLED:
+        _load_streaming()
+
+
 @app.on_event("startup")
 def _startup() -> None:
-    threading.Thread(target=_load_models, daemon=True).start()
+    threading.Thread(target=_load_all, daemon=True).start()
     if IDLE_UNLOAD_SECONDS > 0:
         threading.Thread(target=_idle_watchdog, daemon=True).start()
+
+
+def _streaming_status() -> str:
+    return _streaming_error if _streaming_state == "failed" else _streaming_state
 
 
 @app.get("/health")
 def health() -> JSONResponse:
     # An idle unload is deliberate, so it stays 200: compose gates the worker
     # on this endpoint, and an evicted-but-healthy container must not flap it.
+    # The streaming model is never evicted, so its state gates readiness in
+    # every branch — a failed streaming load must not report green.
     if _state == "idle":
         status = {key: "idle-unloaded" for key in _expected()}
         if not WHISPER_ENABLED:
             status["whisper"] = "disabled"
+        status["streaming"] = _streaming_status()
         return JSONResponse(
             {
                 "status": "idle-unloaded",
                 "models": status,
                 "idle_unload_seconds": IDLE_UNLOAD_SECONDS,
-            }
+            },
+            status_code=503 if _streaming_state == "failed" else 200,
         )
     status = {
         key: "ok" if key in _models else _load_errors.get(key, "loading")
@@ -168,7 +220,8 @@ def health() -> JSONResponse:
     }
     if not WHISPER_ENABLED:
         status["whisper"] = "disabled"
-    if all(key in _models for key in _expected()):
+    status["streaming"] = _streaming_status()
+    if all(key in _models for key in _expected()) and _streaming_state in ("ok", "disabled"):
         return JSONResponse(
             {"status": "ok", "models": status, "idle_unload_seconds": IDLE_UNLOAD_SECONDS}
         )
@@ -180,6 +233,8 @@ def models() -> dict:
     data = [{"id": PARAKEET_ID, "object": "model", "key": "parakeet"}]
     if WHISPER_ENABLED:
         data.append({"id": WHISPER_ID, "object": "model", "key": "whisper"})
+    if STREAMING_ENABLED:
+        data.append({"id": STREAMING_ID, "object": "model", "key": "streaming"})
     return {"object": "list", "data": data}
 
 
@@ -281,3 +336,53 @@ async def transcriptions(file: UploadFile, model: str | None = None) -> dict:
         raise HTTPException(status_code=500, detail=f"transcription failed: {exc}") from exc
     finally:
         os.unlink(path)
+
+
+@app.websocket("/v1/audio/stream")
+async def stream(ws: WebSocket) -> None:
+    """One streaming session: hello JSON, PCM frames in, partials out.
+
+    The client sends ``{"sample_rate_hz": 16000, "channels": 1}``, then binary
+    16 kHz mono s16le frames; ``{"type": "end"}`` flushes the lookahead and
+    returns the final. Partials are sent whenever the transcript grows.
+    """
+    from streaming import SAMPLE_RATE, StreamingSession
+
+    await ws.accept()
+    if _streaming_state != "ok":
+        await ws.send_json({"type": "error", "error": f"streaming {_streaming_status()}"})
+        await ws.close(code=1013)
+        return
+    try:
+        hello = await ws.receive_json()
+    except WebSocketDisconnect:
+        return
+    if hello.get("sample_rate_hz") != SAMPLE_RATE or hello.get("channels", 1) != 1:
+        await ws.send_json(
+            {"type": "error", "error": f"{SAMPLE_RATE} Hz mono s16le required"}
+        )
+        await ws.close(code=1003)
+        return
+    session = await asyncio.to_thread(StreamingSession, _streaming_model, _streaming_gpu_lock)
+    await ws.send_json({"type": "ready", "model": STREAMING_ID})
+    last = ""
+    try:
+        while True:
+            message = await ws.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+            if pcm := message.get("bytes"):
+                text = await asyncio.to_thread(session.feed, pcm)
+                if text is not None and text != last:
+                    last = text
+                    await ws.send_json({"type": "partial", "text": text})
+            elif message.get("text") is not None:
+                final = await asyncio.to_thread(session.finish)
+                await ws.send_json({"type": "final", "text": final})
+                await ws.close()
+                return
+    except WebSocketDisconnect:
+        return
+    except Exception:
+        logger.exception("streaming session failed")
+        await ws.close(code=1011)
