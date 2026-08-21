@@ -57,24 +57,71 @@ def test_idle_state_reloads_through_the_loader(tagger, monkeypatch) -> None:
     assert tagger._state == "loaded"
 
 
-def test_failed_reload_stays_idle_so_the_next_request_retries(tagger, monkeypatch) -> None:
+def _failing_loader(tagger, monkeypatch, error="boom"):
+    """A loader that always fails, wired in with the failure bookkeeping."""
+
     def failing_load() -> None:
         tagger._state = "failed"
-        tagger._load_error = "boom"
+        tagger._load_error = error
+        tagger._record_load_result()
 
     monkeypatch.setattr(tagger, "_load_models", failing_load)
+    return failing_load
+
+
+def test_failed_reload_is_reported_as_failed_not_idle(tagger, monkeypatch) -> None:
+    # Staying "idle" would keep /health at 200 while every request 503s.
+    monkeypatch.setattr(tagger, "_ever_loaded", True)
+    _failing_loader(tagger, monkeypatch)
     monkeypatch.setattr(tagger, "_state", "idle")
     monkeypatch.setattr(tagger, "_models", None)
     with pytest.raises(tagger.ModelsUnavailable, match="boom"):
         tagger._ensure_loaded()
-    assert tagger._state == "idle"
+    assert tagger._state == "failed"
+    assert tagger.health().status_code == 503
 
 
-def test_failed_boot_raises_with_the_load_error(tagger, monkeypatch) -> None:
-    monkeypatch.setattr(tagger, "_state", "failed")
-    monkeypatch.setattr(tagger, "_load_error", "no cuda")
-    with pytest.raises(tagger.ModelsUnavailable, match="no cuda"):
+def test_backoff_suppresses_a_second_attempt(tagger, monkeypatch) -> None:
+    monkeypatch.setattr(tagger, "_ever_loaded", True)
+    _failing_loader(tagger, monkeypatch)
+    monkeypatch.setattr(tagger, "_state", "idle")
+    monkeypatch.setattr(tagger, "_models", None)
+    with pytest.raises(tagger.ModelsUnavailable):
         tagger._ensure_loaded()
+
+    attempts = []
+    monkeypatch.setattr(tagger, "_load_models", lambda: attempts.append(1))
+    with pytest.raises(tagger.ModelsUnavailable):
+        tagger._ensure_loaded()
+    assert attempts == []
+
+
+def test_exits_once_the_retry_limit_is_reached(tagger, monkeypatch) -> None:
+    deaths = []
+    monkeypatch.setattr(tagger, "_die", lambda reason: deaths.append(reason))
+    monkeypatch.setattr(tagger, "_ever_loaded", True)
+    _failing_loader(tagger, monkeypatch)
+    monkeypatch.setattr(tagger, "_state", "idle")
+    monkeypatch.setattr(tagger, "_models", None)
+    for _ in range(tagger.RELOAD_RETRY_LIMIT):
+        monkeypatch.setattr(tagger, "_retry_after", 0.0)
+        with pytest.raises(tagger.ModelsUnavailable):
+            tagger._ensure_loaded()
+    assert len(deaths) == 1
+
+
+def test_cold_start_failure_never_exits(tagger, monkeypatch) -> None:
+    # _ever_loaded is False: a restart would fail the same way, so keep trying.
+    deaths = []
+    monkeypatch.setattr(tagger, "_die", lambda reason: deaths.append(reason))
+    _failing_loader(tagger, monkeypatch, error="no cuda")
+    tagger._load_models()  # the boot load, which never succeeded
+    for _ in range(tagger.RELOAD_RETRY_LIMIT + 2):
+        monkeypatch.setattr(tagger, "_retry_after", 0.0)
+        with pytest.raises(tagger.ModelsUnavailable, match="no cuda"):
+            tagger._ensure_loaded()
+    assert tagger._state == "failed"
+    assert deaths == []
 
 
 def test_health_is_200_when_idle_unloaded(tagger, monkeypatch) -> None:
