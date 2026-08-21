@@ -55,6 +55,13 @@ BATCH_SIZE = int(os.environ.get("DIAR_BATCH_SIZE", "8"))
 # resident forever.
 IDLE_UNLOAD_SECONDS = int(os.environ.get("IDLE_UNLOAD_SECONDS", "0"))
 _WATCHDOG_TICK_SECONDS = 30
+# A reload that fails leaves the process wedged: the checkpoint is fine, but
+# something in this long-lived worker cannot load it again. Retry with backoff,
+# then exit so the restart policy hands us a fresh process, which always works.
+RELOAD_RETRY_LIMIT = 5
+_RELOAD_BACKOFF_SECONDS = 30.0
+# Deferred a beat so the request that tripped the limit still gets its 503.
+_DIE_DELAY_SECONDS = 2.0
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("diar")
@@ -72,11 +79,37 @@ _gpu_lock = threading.Lock()
 # watchdog only ever tries _gpu_lock without blocking.
 _lifecycle = threading.Lock()
 _last_used = time.monotonic()
+_ever_loaded = False  # a cold start that never worked must not exit-loop
+_reload_failures = 0
+_retry_after = 0.0
 _state = "loading"  # "loading" | "loaded" | "idle" | "failed"
 
 
 class ModelsUnavailable(RuntimeError):
     """The model is missing and could not be (re)loaded."""
+
+
+def _die(reason: str) -> None:
+    """Exit so the container's restart policy gives us a fresh process."""
+    logger.error("%s; exiting for a restart", reason)
+    threading.Timer(_DIE_DELAY_SECONDS, os._exit, args=(1,)).start()
+
+
+def _record_load_result() -> None:
+    """Backoff and give-up bookkeeping, run after every load attempt."""
+    global _ever_loaded, _reload_failures, _retry_after, _last_used
+    if _state == "loaded":
+        _last_used = time.monotonic()
+        _ever_loaded = True
+        _reload_failures = 0
+        _retry_after = 0.0
+        return
+    _retry_after = time.monotonic() + _RELOAD_BACKOFF_SECONDS
+    if not _ever_loaded:
+        return  # never loaded at all: a restart would fail the same way
+    _reload_failures += 1
+    if _reload_failures >= RELOAD_RETRY_LIMIT:
+        _die(f"reload failed {_reload_failures} times running")
 
 
 def _load_model() -> None:
@@ -125,22 +158,21 @@ def _load_model() -> None:
         _load_error = f"{type(exc).__name__}: {exc}"
         _state = "failed"
         logger.exception("model load failed")
+    _record_load_result()
 
 
 def _ensure_loaded() -> None:
     """Reload after an idle unload; call while holding ``_gpu_lock``.
 
-    Reload failures leave the state ``idle`` so the next request retries
-    instead of bricking the container.
+    A failed reload leaves the state ``failed``, never ``idle``: the idle
+    branch of /health is a deliberate 200, and answering green while every
+    request 503s is how a wedged reload goes unnoticed for days.
     """
-    global _state, _last_used
+    global _last_used
     with _lifecycle:
-        if _state == "idle":
-            logger.info("reloading model after idle unload ...")
+        if _state in ("idle", "failed") and time.monotonic() >= _retry_after:
+            logger.info("(re)loading model (state=%s) ...", _state)
             _load_model()
-            if _state != "loaded":
-                _state = "idle"
-                raise ModelsUnavailable(f"model reload failed: {_load_error}")
         if _state != "loaded":
             raise ModelsUnavailable(_load_error or "model is not loaded yet")
         _last_used = time.monotonic()
@@ -169,9 +201,16 @@ def _idle_watchdog() -> None:
                 _gpu_lock.release()
 
 
+def _load_model_locked() -> None:
+    # Under _lifecycle: a request arriving mid-startup can now trigger its own
+    # reload off the "failed" state, and the two must not load side by side.
+    with _lifecycle:
+        _load_model()
+
+
 @app.on_event("startup")
 def _startup() -> None:
-    threading.Thread(target=_load_model, daemon=True).start()
+    threading.Thread(target=_load_model_locked, daemon=True).start()
     if IDLE_UNLOAD_SECONDS > 0:
         threading.Thread(target=_idle_watchdog, daemon=True).start()
 
