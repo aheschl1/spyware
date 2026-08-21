@@ -67,6 +67,8 @@ _last_used = time.monotonic()
 _ever_loaded = False  # a cold start that never worked must not exit-loop
 _reload_failures = 0
 _retry_after = 0.0
+# Set by _pin_timestamp_decoding at load; gates the fast transcribe path.
+_parakeet_pinned = False
 _state = "loading"  # "loading" | "loaded" | "idle" | "failed"
 
 
@@ -101,6 +103,31 @@ def _record_load_result() -> None:
         _die(f"reload failed {_reload_failures} times running")
 
 
+def _pin_timestamp_decoding(model) -> bool:
+    """Fix the timestamp decoding config now, so transcribe() need not.
+
+    ``EncDecRNNTModel.transcribe(timestamps=...)`` re-runs
+    ``change_decoding_strategy`` on every call, rebuilding the TDT decoder per
+    clip: ~375 ms of the ~484 ms a short utterance used to cost. Pinning it
+    here lets _transcribe_parakeet skip that. Only the RNNT/TDT path is
+    pinnable -- any other checkpoint keeps the ordinary per-call route.
+    """
+    from nemo.collections.asr.models.rnnt_models import EncDecRNNTModel
+    from omegaconf import open_dict
+
+    if not isinstance(model, EncDecRNNTModel):
+        return False
+    try:
+        with open_dict(model.cfg.decoding):
+            model.cfg.decoding.compute_timestamps = True
+            model.cfg.decoding.preserve_alignments = True
+        model.change_decoding_strategy(model.cfg.decoding, verbose=False)
+    except Exception:
+        logger.exception("could not pin timestamp decoding; keeping the per-call path")
+        return False
+    return True
+
+
 def _load_models() -> None:
     global _state
     if "parakeet" not in _models:
@@ -108,8 +135,11 @@ def _load_models() -> None:
             logger.info("loading %s ...", PARAKEET_ID)
             from nemo.collections.asr.models import ASRModel
 
-            _models["parakeet"] = ASRModel.from_pretrained(PARAKEET_ID).eval().to("cuda")
-            logger.info("parakeet ready")
+            model = ASRModel.from_pretrained(PARAKEET_ID).eval().to("cuda")
+            global _parakeet_pinned
+            _parakeet_pinned = _pin_timestamp_decoding(model)
+            _models["parakeet"] = model
+            logger.info("parakeet ready (timestamps pinned=%s)", _parakeet_pinned)
         except Exception as exc:
             _load_errors["parakeet"] = f"{type(exc).__name__}: {exc}"
             logger.exception("parakeet load failed")
@@ -239,7 +269,22 @@ def _transcribe_parakeet(model, path: str) -> dict:
     import torch
 
     with torch.inference_mode():
-        (hyp,) = model.transcribe([path], timestamps=True, verbose=False)
+        if _parakeet_pinned:
+            from nemo.collections.asr.models.rnnt_models import EncDecRNNTModel
+
+            # The parent's transcribe, deliberately: the RNNT override exists
+            # only to re-pin the decoding strategy, which _pin_timestamp_
+            # decoding already did. timestamps=True still rides along so
+            # process_timestamp_outputs fills hyp.timestamp.
+            (hyp,) = super(EncDecRNNTModel, model).transcribe(
+                audio=[path],
+                batch_size=1,
+                return_hypotheses=True,
+                timestamps=True,
+                verbose=False,
+            )
+        else:
+            (hyp,) = model.transcribe([path], timestamps=True, verbose=False)
     stamps = getattr(hyp, "timestamp", None) or {}
     out = {
         "text": (hyp.text or "").strip(),

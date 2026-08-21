@@ -13,9 +13,11 @@ deletes the transcripts in the same transaction that replaces the utterances,
 and the queued jobs pointing at deleted utterances skip themselves.
 """
 
+from collections import OrderedDict
 from collections.abc import Sequence
 import logging
 from typing import Any
+from uuid import UUID
 
 from database.pipe import DatabasePipe
 from database.repos.pipelines.transcribe import TranscribeQueries
@@ -28,6 +30,9 @@ from resources import Resource
 from services import stitch, timeline
 
 _SOURCE_PIPELINE = "diarize"
+# Timelines to keep between jobs. Discovery interleaves sessions, so one slot
+# would thrash; a handful covers a pass without holding stale audio for long.
+_TIMELINE_CACHE = 4
 
 
 class TranscribePipeline(Pipeline):
@@ -37,11 +42,38 @@ class TranscribePipeline(Pipeline):
     async def setup(self) -> None:
         self._settings = get_settings()
         self._transcriber = Transcriber(self._settings)
+        self._timelines: OrderedDict[UUID, timeline.SessionTimeline] = OrderedDict()
 
     async def teardown(self) -> None:
         await self._transcriber.close()
 
+    async def _timeline_for(
+        self, session_id: UUID, end_ms: int
+    ) -> timeline.SessionTimeline | None:
+        """The session's timeline, reused across jobs in the same pass.
+
+        load_timeline is a segment query plus (sometimes) a blob header read --
+        200-460 ms on real sessions, several times what transcribing the clip
+        costs. Reuse is gated on the cached timeline already covering end_ms:
+        audio is append-only, but byte_range() clamps silently, so reusing one
+        that stops short would truncate the clip instead of failing.
+        """
+        cached = self._timelines.get(session_id)
+        if cached is not None and end_ms <= cached.total_ms:
+            self._timelines.move_to_end(session_id)
+            return cached
+        line = await timeline.load_timeline(session_id)
+        if line is not None:
+            self._timelines[session_id] = line
+            self._timelines.move_to_end(session_id)
+            while len(self._timelines) > _TIMELINE_CACHE:
+                self._timelines.popitem(last=False)
+        return line
+
     async def discover(self, limit: int) -> Sequence[JobCreate]:
+        # A new pass may follow an ingest that extended a session, and a
+        # deleted session must not stay cached indefinitely.
+        self._timelines.clear()
         async with DatabasePipe() as pipe:
             utterances = await TranscribeQueries(pipe.connection).utterances_without_jobs(
                 self.name, _SOURCE_PIPELINE, limit
@@ -75,7 +107,7 @@ class TranscribePipeline(Pipeline):
         overlap_ms = job.payload.get("overlap_ms")
 
         try:
-            line = await timeline.load_timeline(job.session_id)
+            line = await self._timeline_for(job.session_id, end_ms)
             if line is None:
                 return {"skipped": "session audio is gone"}
             clip = await timeline.render_range(line, start_ms, end_ms)
