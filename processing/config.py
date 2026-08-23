@@ -24,6 +24,9 @@ class ProcessingSettings(BaseSettings):
     max_attempts: int = 5
     retry_backoff_base_seconds: float = 2.0
     retry_backoff_cap_seconds: float = 300.0
+    # Requeue delay when a backing service is down; its own recovery loop
+    # (retry -> exit -> restart -> cold load) needs a few minutes.
+    unavailable_retry_seconds: float = 30.0
 
     # Supervisor: SIGTERM -> SIGKILL window and child-restart backoff.
     shutdown_grace_seconds: float = 20.0

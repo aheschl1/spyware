@@ -20,11 +20,16 @@ from typing import Any
 
 import httpx
 
+from processing.base import ServiceUnavailable
 from processing.config import ProcessingSettings
 
 
 class TranscriberError(Exception):
     """The service failed or answered something unusable. Retryable."""
+
+
+class TranscriberUnavailable(TranscriberError, ServiceUnavailable):
+    """The service itself is down (unreachable or 503)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,8 +83,10 @@ class Transcriber:
             if self._protocol == "openai":
                 return await self._transcribe_openai(wav, filename, model)
             return await self._transcribe_cog(wav)
+        except httpx.TransportError as exc:
+            raise TranscriberUnavailable(f"transcriber unreachable: {exc}") from exc
         except httpx.HTTPError as exc:
-            raise TranscriberError(f"transcriber unreachable: {exc}") from exc
+            raise TranscriberError(f"transcriber request failed: {exc}") from exc
 
     async def _transcribe_openai(
         self, wav: bytes, filename: str, model: str | None
@@ -119,6 +126,10 @@ class Transcriber:
         return Transcription(text=text.strip(), raw=body)
 
     def _json_or_raise(self, response: httpx.Response) -> dict[str, Any]:
+        if response.status_code == 503:
+            raise TranscriberUnavailable(
+                f"transcriber answered 503: {response.text[:500]}"
+            )
         if response.status_code >= 400:
             raise TranscriberError(
                 f"transcriber answered {response.status_code}: {response.text[:500]}"

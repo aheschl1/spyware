@@ -179,26 +179,37 @@ def _ensure_loaded() -> None:
 
 
 def _idle_watchdog() -> None:
-    global _pipeline, _embedding, _audio, _state
     while True:
         time.sleep(_WATCHDOG_TICK_SECONDS)
-        with _lifecycle:
-            if _state != "loaded" or time.monotonic() - _last_used < IDLE_UNLOAD_SECONDS:
-                continue
-            if not _gpu_lock.acquire(blocking=False):
-                continue  # inference in flight; not idle after all
-            try:
-                import torch
+        _watchdog_tick()
 
-                _pipeline = None
-                _embedding = None
-                _audio = None
-                gc.collect()
-                torch.cuda.empty_cache()
-                _state = "idle"
-                logger.info("idle for %ss; model unloaded", IDLE_UNLOAD_SECONDS)
-            finally:
-                _gpu_lock.release()
+
+def _watchdog_tick() -> None:
+    global _pipeline, _embedding, _audio, _state
+    with _lifecycle:
+        if _state == "failed" and _ever_loaded and time.monotonic() >= _retry_after:
+            # A wedged reload must not wait for traffic: the 2026-08-23
+            # outage stalled at 4/5 failures when the queue went quiet, so
+            # the watchdog walks the failure count to _die by itself.
+            logger.info("watchdog retrying failed (re)load ...")
+            _load_model()
+            return
+        if _state != "loaded" or time.monotonic() - _last_used < IDLE_UNLOAD_SECONDS:
+            return
+        if not _gpu_lock.acquire(blocking=False):
+            return  # inference in flight; not idle after all
+        try:
+            import torch
+
+            _pipeline = None
+            _embedding = None
+            _audio = None
+            gc.collect()
+            torch.cuda.empty_cache()
+            _state = "idle"
+            logger.info("idle for %ss; model unloaded", IDLE_UNLOAD_SECONDS)
+        finally:
+            _gpu_lock.release()
 
 
 def _load_model_locked() -> None:

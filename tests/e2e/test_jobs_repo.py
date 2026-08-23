@@ -220,3 +220,19 @@ async def test_artifacts_crud_and_find(clean_state) -> None:
 
         assert await pipe.artifacts.delete(other_kind.id) is True
         assert await pipe.artifacts.get(other_kind.id) is None
+
+
+async def test_retry_without_counting_refunds_the_attempt(clean_state) -> None:
+    async with DatabasePipe() as pipe:
+        job = await pipe.jobs.enqueue(JobCreate(pipeline="p"))
+        assert job is not None
+        claimed = await pipe.jobs.claim("p", "w")
+        assert claimed is not None and claimed.attempts == 1
+
+        past = datetime.now(UTC) - timedelta(seconds=1)
+        retried = await pipe.jobs.retry(claimed.id, "sidecar down", past, count_attempt=False)
+        assert retried is not None
+        assert retried.attempts == 0  # the outage did not consume the budget
+
+        again = await pipe.jobs.claim("p", "w")
+        assert again is not None and again.attempts == 1

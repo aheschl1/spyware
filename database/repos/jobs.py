@@ -151,18 +151,25 @@ class JobsRepo(BaseRepo):
             (Jsonb(result), job_id),
         )
 
-    async def retry(self, job_id: UUID, error: str, run_at: datetime) -> Job | None:
-        """Return a failed job to the queue for another try at ``run_at``."""
+    async def retry(
+        self, job_id: UUID, error: str, run_at: datetime, *, count_attempt: bool = True
+    ) -> Job | None:
+        """Return a failed job to the queue for another try at ``run_at``.
+
+        ``count_attempt=False`` refunds the attempt claim() charged, for
+        failures that say nothing about the job (a sidecar outage).
+        """
         return await self._fetch_one(
             Job,
             f"""
                 UPDATE processing_jobs
                 SET status = 'queued', error = %s, run_at = %s,
-                    claimed_at = NULL, claimed_by = NULL
+                    claimed_at = NULL, claimed_by = NULL,
+                    attempts = greatest(attempts - %s, 0)
                 WHERE id = %s AND status = 'running'
                 RETURNING {COLUMNS}
             """,
-            (error, run_at, job_id),
+            (error, run_at, 0 if count_attempt else 1, job_id),
         )
 
     async def mark_dead(self, job_id: UUID, error: str) -> Job | None:

@@ -24,6 +24,16 @@ logger = logging.getLogger(__name__)
 type Callback = Callable[[Job, dict[str, Any]], Awaitable[None]]
 
 
+class ServiceUnavailable(Exception):
+    """A backing service is down, not a fault of this job.
+
+    The worker requeues without consuming the attempt budget: a sidecar
+    outage lasts minutes (it retries and restarts itself), and dead-lettering
+    every queued job in the meantime is how 3k transcriptions went dead on
+    2026-08-23.
+    """
+
+
 def backoff(attempts: int, settings: ProcessingSettings) -> float:
     """Seconds until the next try: base doubling per attempt, capped."""
     return min(

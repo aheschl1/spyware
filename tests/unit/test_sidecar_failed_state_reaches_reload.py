@@ -80,3 +80,46 @@ async def test_loading_state_still_short_circuits(name, call, monkeypatch) -> No
         assert info.value.status_code == 503
     finally:
         del sys.modules[module.__name__]
+
+
+@pytest.mark.parametrize("name", ["asr_parakeet", "diar_pyannote", "audio_tagger"])
+def test_watchdog_retries_a_failed_reload_without_traffic(name, monkeypatch) -> None:
+    """The watchdog must walk a wedged reload to _die on its own clock: the
+    2026-08-23 outage stalled at 4/5 failures once the queue went quiet."""
+    module = _load(name)
+    try:
+        deaths = []
+        monkeypatch.setattr(module, "_die", lambda reason: deaths.append(reason))
+        monkeypatch.setattr(module, "_ever_loaded", True)
+        monkeypatch.setattr(module, "_state", "failed")
+        monkeypatch.setattr(module, "_retry_after", 0.0)
+        loader = module._load_models if hasattr(module, "_load_models") else module._load_model
+        attempts = []
+
+        def failing_load() -> None:
+            attempts.append(1)
+            module._record_load_result()
+
+        target = "_load_models" if hasattr(module, "_load_models") else "_load_model"
+        monkeypatch.setattr(module, target, failing_load)
+        for _ in range(module.RELOAD_RETRY_LIMIT + 2):
+            monkeypatch.setattr(module, "_retry_after", 0.0)
+            module._watchdog_tick()
+        assert len(attempts) >= module.RELOAD_RETRY_LIMIT
+        assert deaths
+    finally:
+        del sys.modules[module.__name__]
+
+
+@pytest.mark.parametrize("name", ["asr_parakeet", "diar_pyannote", "audio_tagger"])
+def test_watchdog_leaves_a_cold_start_failure_alone(name, monkeypatch) -> None:
+    module = _load(name)
+    try:
+        monkeypatch.setattr(module, "_state", "failed")
+        monkeypatch.setattr(module, "_ever_loaded", False)
+        monkeypatch.setattr(module, "_retry_after", 0.0)
+        target = "_load_models" if hasattr(module, "_load_models") else "_load_model"
+        monkeypatch.setattr(module, target, lambda: pytest.fail("reloaded"))
+        module._watchdog_tick()
+    finally:
+        del sys.modules[module.__name__]

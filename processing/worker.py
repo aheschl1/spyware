@@ -23,7 +23,7 @@ from database.pipe import DatabasePipe, close_pool
 from database.repos.jobs import NOTIFY_CHANNEL
 from database.schema.jobs import Job
 from processing import registry
-from processing.base import Pipeline, backoff
+from processing.base import Pipeline, ServiceUnavailable, backoff
 from processing.config import ProcessingSettings, get_settings
 from storage.pipe import close_blob_client
 
@@ -115,6 +115,16 @@ async def _drain(
 async def _run_one(pipeline: Pipeline, job: Job, settings: ProcessingSettings) -> None:
     try:
         result = await pipeline.process(job)
+    except ServiceUnavailable as exc:
+        delay = settings.unavailable_retry_seconds
+        logger.warning(
+            "%s job %s: backing service unavailable (%s); retrying in %.0fs, attempt refunded",
+            pipeline.name, job.id, exc, delay,
+        )
+        async with DatabasePipe() as pipe:
+            run_at = datetime.now(UTC) + timedelta(seconds=delay)
+            await pipe.jobs.retry(job.id, str(exc), run_at, count_attempt=False)
+        return
     except Exception:
         error = traceback.format_exc()
         async with DatabasePipe() as pipe:
