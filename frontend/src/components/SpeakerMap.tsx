@@ -4,6 +4,7 @@ import { api, type ProjectionPointRead, type SpeakerProjectionRead } from "../ap
 import { shortId } from "../format"
 import { hue } from "../speakers"
 import SpeakerMapInspector from "./SpeakerMapInspector"
+import { useSearchParam } from "../useParam"
 
 // Each view names the components it shows, so the explained-variance figure
 // is derived from the axes on screen rather than assumed to be PC1+PC2.
@@ -70,7 +71,8 @@ export default function SpeakerMap({
   const [error, setError] = useState<string | null>(null)
   const [model, setModel] = useState<string | null>(null)
   const [includeUnassigned, setIncludeUnassigned] = useState(true)
-  const [view, setView] = useState<View>(VIEWS[0])
+  const [proj, setProj] = useSearchParam("proj", VIEWS[0].key)
+  const view: View = VIEWS.find((option) => option.key === proj) ?? VIEWS[0]
   const [selected, setSelected] = useState<ProjectionPointRead | null>(null)
 
   const is3d = view.key === "3d"
@@ -242,7 +244,7 @@ export default function SpeakerMap({
             <button
               key={option.key}
               className={`mode ${option.key === view.key ? "active" : ""}`}
-              onClick={() => setView(option)}
+              onClick={() => setProj(option.key)}
             >
               {option.label}
             </button>

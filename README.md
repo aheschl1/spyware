@@ -146,6 +146,13 @@ typed openapi-fetch client. Regenerate after any API change — `npm run build`
 `POST /v1/sessions/{id}/playback` in the audio URL's `?token=`, because media
 elements cannot send an Authorization header.
 
+Pages are URLs (react-router; nginx and Vite fall back to `index.html`), so a
+reload or a shared link lands on the same screen: `/sessions`, `/sessions/<id>?t=<ms>`,
+`/search?mode=describe|classes|transcripts&q=…`, `/speakers?speaker=<id>&tab=transcripts|prints`,
+`/speakers?view=map&proj=12|13|23|3d`, `/map`, `/ab`, `/ab/<id>`. Defaults are
+omitted from the query string. Top-level route names must not start with the
+prefixes nginx proxies to the API (`v1`, `health`, `docs`, `redoc`, …).
+
 ## Model sidecars (`sidecars/`)
 
 Three GPU serving containers, each a Dockerfile plus one `app.py`. They are the

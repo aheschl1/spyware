@@ -1,4 +1,14 @@
 import { useEffect, useState } from "react"
+import {
+  Navigate,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router"
 import { clearToken, getToken, setExpiryHandler } from "./api/auth"
 import { api, type MeRead } from "./api/client"
 import AbOverview from "./components/AbOverview"
@@ -11,20 +21,70 @@ import SessionList from "./components/SessionList"
 import SessionView from "./components/SessionView"
 import SpeakerMap from "./components/SpeakerMap"
 import SpeakersView from "./components/SpeakersView"
+import { useSearchParam } from "./useParam"
 
-type Tab = "sessions" | "search" | "speakers" | "map" | "ab"
+const TABS = ["sessions", "search", "speakers", "map", "ab"] as const
 
-type View =
-  | { kind: "list"; tab: Tab }
-  | { kind: "session"; id: string; seekMs?: number }
-  | { kind: "ab"; id: string }
+function useNav() {
+  const navigate = useNavigate()
+  const openSession = (id: string, seekMs?: number) =>
+    navigate(seekMs === undefined ? `/sessions/${id}` : `/sessions/${id}?t=${Math.round(seekMs)}`)
+  const openAb = (id: string) => navigate(`/ab/${id}`)
+  // A deep link has no app history to pop, so fall back to the list page.
+  const back = (fallback: string) =>
+    (window.history.state?.idx ?? 0) > 0 ? navigate(-1) : navigate(fallback)
+  return { openSession, openAb, back }
+}
+
+function SessionRoute() {
+  const { id = "" } = useParams()
+  const [params] = useSearchParams()
+  const { openSession, openAb, back } = useNav()
+  const t = Number(params.get("t"))
+  return (
+    <SessionView
+      key={id}
+      sessionId={id}
+      seekMs={params.has("t") && Number.isFinite(t) ? t : undefined}
+      onBack={() => back("/sessions")}
+      onOpenSession={openSession}
+      onAb={openAb}
+    />
+  )
+}
+
+function AbVoteRoute() {
+  const { id = "" } = useParams()
+  const { back } = useNav()
+  return <AbVoteView key={id} sessionId={id} onBack={() => back("/ab")} />
+}
+
+function SpeakersPage() {
+  const { openSession } = useNav()
+  const [sub, setSub] = useSearchParam("view", "list")
+  return (
+    <>
+      <div className="subtabs">
+        {(["list", "map"] as const).map((option) => (
+          <button
+            key={option}
+            className={`chip as-button ${sub === option ? "strong" : ""}`}
+            onClick={() => setSub(option)}
+          >
+            {option === "list" ? "speakers" : "voice map"}
+          </button>
+        ))}
+      </div>
+      {sub === "map" ? <SpeakerMap onOpen={openSession} /> : <SpeakersView onOpen={openSession} />}
+    </>
+  )
+}
 
 export default function App() {
   const [authed, setAuthed] = useState(() => getToken() !== null)
-  const [view, setView] = useState<View>({ kind: "list", tab: "sessions" })
   const [me, setMe] = useState<MeRead | null>(null)
-  // The speakers tab hosts two faces: the list and the PCA voice map.
-  const [speakersSub, setSpeakersSub] = useState<"list" | "map">("list")
+  const location = useLocation()
+  const { openSession, openAb } = useNav()
 
   useEffect(() => {
     setExpiryHandler(() => setAuthed(false))
@@ -51,23 +111,24 @@ export default function App() {
 
   if (!authed) return <Gate onAuthed={() => setAuthed(true)} />
 
-  const openSession = (id: string, seekMs?: number) =>
-    setView(seekMs === undefined ? { kind: "session", id } : { kind: "session", id, seekMs })
-  const activeTab = view.kind === "list" ? view.tab : "sessions"
+  const wide =
+    location.pathname === "/map" ||
+    (location.pathname === "/speakers" &&
+      new URLSearchParams(location.search).get("view") === "map")
 
   return (
     <div className="app">
       <header className="topbar">
         <span className="brand">spyware</span>
         <nav className="tabs">
-          {(["sessions", "search", "speakers", "map", "ab"] as const).map((tab) => (
-            <button
+          {TABS.map((tab) => (
+            <NavLink
               key={tab}
-              className={`tab ${activeTab === tab && view.kind === "list" ? "active" : ""}`}
-              onClick={() => setView({ kind: "list", tab })}
+              to={`/${tab}`}
+              className={({ isActive }) => `tab ${isActive ? "active" : ""}`}
             >
               {tab}
-            </button>
+            </NavLink>
           ))}
         </nav>
         <div className="topbar-right">
@@ -84,57 +145,17 @@ export default function App() {
         </div>
       </header>
 
-      <main
-        className={`main ${
-          view.kind === "list" &&
-          (view.tab === "map" || (view.tab === "speakers" && speakersSub === "map"))
-            ? "wide"
-            : ""
-        }`}
-      >
-        {view.kind === "session" ? (
-          <SessionView
-            key={view.id}
-            sessionId={view.id}
-            seekMs={view.seekMs}
-            onBack={() => setView({ kind: "list", tab: "sessions" })}
-            onOpenSession={openSession}
-            onAb={(id) => setView({ kind: "ab", id })}
-          />
-        ) : view.kind === "ab" ? (
-          <AbVoteView
-            key={view.id}
-            sessionId={view.id}
-            onBack={() => setView({ kind: "list", tab: "ab" })}
-          />
-        ) : view.tab === "sessions" ? (
-          <SessionList onOpen={openSession} />
-        ) : view.tab === "search" ? (
-          <SearchView onOpen={openSession} />
-        ) : view.tab === "map" ? (
-          <GeoMap onOpen={openSession} />
-        ) : view.tab === "ab" ? (
-          <AbOverview onVote={(id) => setView({ kind: "ab", id })} />
-        ) : (
-          <>
-            <div className="subtabs">
-              {(["list", "map"] as const).map((sub) => (
-                <button
-                  key={sub}
-                  className={`chip as-button ${speakersSub === sub ? "strong" : ""}`}
-                  onClick={() => setSpeakersSub(sub)}
-                >
-                  {sub === "list" ? "speakers" : "voice map"}
-                </button>
-              ))}
-            </div>
-            {speakersSub === "map" ? (
-              <SpeakerMap onOpen={openSession} />
-            ) : (
-              <SpeakersView onOpen={openSession} />
-            )}
-          </>
-        )}
+      <main className={`main ${wide ? "wide" : ""}`}>
+        <Routes>
+          <Route path="/sessions" element={<SessionList onOpen={openSession} />} />
+          <Route path="/sessions/:id" element={<SessionRoute />} />
+          <Route path="/search" element={<SearchView onOpen={openSession} />} />
+          <Route path="/speakers" element={<SpeakersPage />} />
+          <Route path="/map" element={<GeoMap onOpen={openSession} />} />
+          <Route path="/ab" element={<AbOverview onVote={openAb} />} />
+          <Route path="/ab/:id" element={<AbVoteRoute />} />
+          <Route path="*" element={<Navigate to="/sessions" replace />} />
+        </Routes>
       </main>
     </div>
   )

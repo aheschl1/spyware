@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react"
+import { useSearchParam } from "../useParam"
 import {
   api,
   type ClusterParamsRead,
@@ -365,8 +366,13 @@ export default function SpeakersView({
   onOpen: (id: string, seekMs?: number) => void
 }) {
   const [speakers, setSpeakers] = useState<SpeakerRead[] | null>(null)
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [expandedTab, setExpandedTab] = useState<"transcripts" | "prints">("transcripts")
+  // The expanded speaker and its tab live in the URL so a speaker is linkable.
+  const [expandedParam, setExpandedParam] = useSearchParam("speaker", "")
+  const expanded = expandedParam || null
+  const [tabParam, setTabParam] = useSearchParam("tab", "transcripts")
+  const expandedTab: "transcripts" | "prints" = tabParam === "prints" ? "prints" : "transcripts"
+  const setExpanded = (id: string | null) => setExpandedParam(id, { tab: null })
+  const setExpandedTab = (tab: "transcripts" | "prints") => setTabParam(tab)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState("")
   const [transcripts, setTranscripts] = useState<Record<string, SpeakerTranscriptRead[]>>({})
@@ -423,17 +429,24 @@ export default function SpeakersView({
     }
   }
 
-  const toggle = async (speaker: SpeakerRead) => {
-    const next = expanded === speaker.id ? null : speaker.id
-    setExpanded(next)
-    setExpandedTab("transcripts")
-    if (next && !transcripts[speaker.id]) {
-      const { data } = await api.GET("/v1/speakers/{speaker_id}/transcripts", {
-        params: { path: { speaker_id: speaker.id }, query: { limit: 50, offset: 0 } },
-      })
-      if (data) setTranscripts((prev) => ({ ...prev, [speaker.id]: data.items }))
+  const toggle = (speaker: SpeakerRead) =>
+    setExpanded(expanded === speaker.id ? null : speaker.id)
+
+  // Whatever is expanded (by click or by deep link) gets its data fetched.
+  useEffect(() => {
+    if (!expanded) return
+    const id = expanded
+    if (!transcripts[id]) {
+      void api
+        .GET("/v1/speakers/{speaker_id}/transcripts", {
+          params: { path: { speaker_id: id }, query: { limit: 50, offset: 0 } },
+        })
+        .then(({ data }) => {
+          if (data) setTranscripts((prev) => ({ ...prev, [id]: data.items }))
+        })
     }
-  }
+    if (expandedTab === "prints" && !members[id]) void loadMembers(id)
+  }, [expanded, expandedTab, transcripts, members])
 
   const loadMembers = async (speakerId: string, offset = 0) => {
     const { data } = await api.GET("/v1/speakers/{speaker_id}/members", {
@@ -450,11 +463,6 @@ export default function SpeakersView({
           hasMore: data.has_more,
         },
       }))
-  }
-
-  const openPrints = (speakerId: string) => {
-    setExpandedTab("prints")
-    if (!members[speakerId]) void loadMembers(speakerId)
   }
 
   // Any mutation invalidates derived caches for the clusters it touched.
@@ -485,7 +493,7 @@ export default function SpeakersView({
       ),
     )
     dropCaches(loserId, data.id)
-    setExpanded((prev) => (prev === loserId ? null : prev))
+    if (expanded === loserId) setExpanded(null)
     setNamePrompt((prev) => (prev && prev.loserId === loserId ? null : prev))
   }
 
@@ -515,7 +523,7 @@ export default function SpeakersView({
     })
     dropCaches(source.id, data.target.id)
     if (data.source) void loadMembers(source.id)
-    else setExpanded((prev) => (prev === source.id ? null : prev))
+    else if (expanded === source.id) setExpanded(null)
   }
 
   const unpin = async (speakerId: string, artifactId: string) => {
@@ -688,7 +696,7 @@ export default function SpeakersView({
                     </button>
                     <button
                       className={`mode ${expandedTab === "prints" ? "active" : ""}`}
-                      onClick={() => openPrints(speaker.id)}
+                      onClick={() => setExpandedTab("prints")}
                     >
                       voice-prints
                     </button>

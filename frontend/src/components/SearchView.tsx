@@ -1,7 +1,8 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useRef, useState, type FormEvent } from "react"
 import { api, type AudioSearchRead, type Schemas } from "../api/client"
 import { fmtClock, shortId } from "../format"
 import ClipButton, { ClipProgress } from "./ClipButton"
+import { useSearchParam } from "../useParam"
 
 type TagSearchRead = Schemas["TagSearchRead"]
 type TagLabelRead = Schemas["TagLabelRead"]
@@ -71,8 +72,13 @@ export default function SearchView({
 }: {
   onOpen: (id: string, seekMs?: number) => void
 }) {
-  const [mode, setMode] = useState<Mode>("describe")
-  const [q, setQ] = useState("")
+  const [modeParam, setMode] = useSearchParam("mode", "describe")
+  const mode: Mode =
+    modeParam === "classes" || modeParam === "transcripts" ? modeParam : "describe"
+  // The submitted query lives in the URL; the input box is local until submit.
+  const [urlQ, setUrlQ] = useSearchParam("q", "")
+  const [q, setQ] = useState(urlQ)
+  const ran = useRef<string | null>(null)
   const [minScore, setMinScore] = useState(0.3)
   const [known, setKnown] = useState<TagLabelRead[]>([])
   const [results, setResults] = useState<Hit[] | null>(null)
@@ -90,6 +96,8 @@ export default function SearchView({
 
   const run = async (query: string) => {
     if (!query.trim()) return
+    ran.current = `${mode}\0${query.trim()}`
+    setUrlQ(query.trim())
     setBusy(true)
     setError(null)
     setFuzzy(false)
@@ -132,6 +140,11 @@ export default function SearchView({
     }
   }
 
+  // A reload or shared link re-runs the query it carries.
+  useEffect(() => {
+    if (urlQ && ran.current !== `${mode}\0${urlQ}`) void run(urlQ)
+  }, [mode, urlQ])
+
   const submit = (event: FormEvent) => {
     event.preventDefault()
     void run(q)
@@ -152,7 +165,7 @@ export default function SearchView({
             className={`mode ${mode === value ? "active" : ""}`}
             onClick={() => {
               // The query survives a mode switch; stale results don't.
-              setMode(value)
+              setMode(value, { q: null })
               setResults(null)
               setError(null)
             }}

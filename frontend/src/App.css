@@ -104,6 +104,7 @@ body {
 }
 
 .tab {
+  text-decoration: none;
   background: none;
   border: none;
   color: var(--text-muted);
