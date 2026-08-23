@@ -66,7 +66,8 @@ class SpeakersRepo(BaseRepo):
         limit: int = 50,
         offset: int = 0,
     ) -> list[SpeakerSummary]:
-        """The user's clusters with membership counts, named or not.
+        """The user's clusters with membership counts, named first so a
+        limited page always contains every labeled identity.
 
         LEFT JOIN: a named cluster whose members were cascaded away by a
         diarize republish must stay visible — it anchors the identity that
@@ -85,7 +86,10 @@ class SpeakersRepo(BaseRepo):
         if name is not None:
             sql += " AND s.name = %s"
             params.append(name)
-        sql += " GROUP BY s.id ORDER BY s.created_at, s.id LIMIT %s OFFSET %s"
+        sql += (
+            " GROUP BY s.id ORDER BY (s.name IS NULL), s.created_at, s.id"
+            " LIMIT %s OFFSET %s"
+        )
         params += [limit, offset]
         return await self._fetch_all(SpeakerSummary, sql, params)
 
