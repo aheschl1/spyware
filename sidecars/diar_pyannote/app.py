@@ -416,7 +416,9 @@ def _diarize_file(path: str) -> dict:
 
 @app.post("/v1/audio/diarizations")
 async def diarizations(file: UploadFile) -> dict:
-    if _state in ("loading", "failed"):
+    # Only the cold start short-circuits: a "failed" worker must reach
+    # _ensure_loaded so the retry/exit bookkeeping runs instead of 503ing forever.
+    if _state == "loading":
         raise HTTPException(status_code=503, detail="model is not loaded yet")
     data = await file.read()
     if not data:

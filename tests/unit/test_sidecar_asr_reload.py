@@ -105,3 +105,24 @@ def test_health_is_200_when_genuinely_idle(asr, monkeypatch) -> None:
     response = asr.health()
     assert response.status_code == 200
     assert b"idle-unloaded" in response.body
+
+
+async def test_a_request_in_the_failed_state_retries_the_load(asr, monkeypatch, deaths) -> None:
+    """The HTTP path must reach _ensure_loaded: the 2026-08-21 wedge sat at
+    'failed' for two days because the endpoint 503'd before it."""
+    from io import BytesIO
+
+    from fastapi import HTTPException, UploadFile
+
+    _reloadable(asr, monkeypatch)
+    with pytest.raises(asr.ModelsUnavailable):
+        asr._ensure_loaded("parakeet")
+    assert asr._state == "failed"
+    attempts = []
+    monkeypatch.setattr(asr, "_load_models", lambda: attempts.append(1))
+    monkeypatch.setattr(asr, "_retry_after", 0.0)
+    upload = UploadFile(BytesIO(b"RIFF"), filename="x.wav")
+    with pytest.raises(HTTPException) as info:
+        await asr.transcriptions(upload, None)
+    assert info.value.status_code == 503
+    assert attempts == [1]

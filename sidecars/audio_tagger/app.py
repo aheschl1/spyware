@@ -348,7 +348,9 @@ def _analyze(data: bytes) -> dict:
 
 @app.post("/v1/audio/analyze")
 async def analyze(file: UploadFile) -> dict:
-    if _state in ("loading", "failed"):
+    # Only the cold start short-circuits: a "failed" worker must reach
+    # _ensure_loaded so the retry/exit bookkeeping runs instead of 503ing forever.
+    if _state == "loading":
         raise HTTPException(status_code=503, detail="models are not loaded yet")
     data = await file.read()
     if not data:
@@ -368,7 +370,9 @@ class TextRequest(BaseModel):
 
 @app.post("/v1/text/embeddings")
 async def text_embeddings(body: TextRequest) -> dict:
-    if _state in ("loading", "failed"):
+    # Only the cold start short-circuits: a "failed" worker must reach
+    # _ensure_loaded so the retry/exit bookkeeping runs instead of 503ing forever.
+    if _state == "loading":
         raise HTTPException(status_code=503, detail="models are not loaded yet")
     if not body.texts or not all(t.strip() for t in body.texts):
         raise HTTPException(status_code=400, detail="texts must be non-empty strings")

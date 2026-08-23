@@ -351,7 +351,9 @@ async def transcriptions(file: UploadFile, model: str | None = None) -> dict:
     key = _resolve(model)
     if key == "whisper" and not WHISPER_ENABLED:
         raise HTTPException(status_code=422, detail="whisper is disabled (ASR_WHISPER_ENABLED=1)")
-    if _state != "idle" and key not in _models:
+    # Only the cold start short-circuits here: a "failed" worker must reach
+    # _ensure_loaded so the retry/exit bookkeeping runs instead of 503ing forever.
+    if _state == "loading" and key not in _models:
         raise HTTPException(status_code=503, detail=f"{key} is not loaded yet")
     data = await file.read()
     if not data:

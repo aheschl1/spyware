@@ -182,12 +182,15 @@ class JobsRepo(BaseRepo):
         """Recover orphans at worker boot.
 
         Sound only because exactly one worker process runs per pipeline: any
-        'running' row seen at startup belonged to a dead predecessor.
+        'running' row seen at startup belonged to a dead predecessor. 'dead'
+        rows come back with a fresh attempt budget: they exhausted it against
+        whatever outage this restart is meant to clear.
         """
         return await self._execute(
             """
                 UPDATE processing_jobs
-                SET status = 'queued', run_at = now(), claimed_at = NULL, claimed_by = NULL
+                SET status = 'queued', run_at = now(), claimed_at = NULL, claimed_by = NULL,
+                    attempts = CASE WHEN status = 'dead' THEN 0 ELSE attempts END
                 WHERE pipeline = %s AND ( status = 'running' OR status = 'dead')
             """,
             (pipeline,),
