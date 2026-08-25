@@ -42,7 +42,13 @@ async def test_mixed_label_splits_into_sub_labels(
     session = await _long_session(account)
 
     job = await wait_for_job(session.id, "diarize", JobStatus.SUCCEEDED)
-    assert job.result == {"blocks": 1, "turns": 5, "utterances": 3, "speakers": 3}
+    assert job.result == {
+        "blocks": 1,
+        "turns": 5,
+        "utterances": 3,
+        "interjections": 1,
+        "speakers": 3,
+    }
 
     async with DatabasePipe() as pipe:
         turns = await pipe.artifacts.list_for_session(session.id, kind="speaker-turn")
@@ -75,6 +81,15 @@ async def test_mixed_label_splits_into_sub_labels(
         (0, 500, "b0:SPEAKER_00.0", 50),
         (500, 950, "b0:SPEAKER_00.1", 0),
     ]
+
+    # SPEAKER_01's utterance sits entirely inside SPEAKER_00.0's: an
+    # interjection, linked to its host by id.
+    by_utterance_speaker = {u.metadata["speaker"]: u for u in utterances}
+    host = by_utterance_speaker["b0:SPEAKER_00.0"]
+    interjection = by_utterance_speaker["b0:SPEAKER_01"]
+    assert interjection.links == {"host_utterance": str(host.id)}
+    assert host.metadata["interjections"] == 1
+    assert "host_utterance" not in host.links
 
     # Voice-prints: one per final label. The sub-labels pool their own clean
     # turn vectors (never the blended aggregate); the old-style label falls
@@ -125,6 +140,25 @@ async def test_split_labels_flow_into_transcripts_and_clusters(
     assert set(by_speaker) == {"b0:SPEAKER_00.0", "b0:SPEAKER_00.1", "b0:SPEAKER_01"}
     assert by_speaker["b0:SPEAKER_00.0"].metadata["overlap_ms"] == 50
     assert by_speaker["b0:SPEAKER_00.1"].metadata["overlap_ms"] == 0
+
+    # The interjection's transcript copies the host link, and the timeline
+    # serves it as stored data.
+    host_utterance = next(
+        u for u in utterances if u.metadata["speaker"] == "b0:SPEAKER_00.0"
+    )
+    assert by_speaker["b0:SPEAKER_01"].links["host_utterance"] == str(host_utterance.id)
+    assert "host_utterance" not in by_speaker["b0:SPEAKER_00.0"].links
+    page = await client.get(
+        f"/v1/sessions/{session.id}/timeline", headers=account.headers
+    )
+    assert page.status_code == 200
+    events = {
+        e["speaker"]: e for e in page.json()["items"] if e["type"] == "transcript"
+    }
+    assert events["b0:SPEAKER_01"]["interjection_of"] == str(host_utterance.id)
+    assert events["b0:SPEAKER_01"]["utterance_id"] is not None
+    assert events["b0:SPEAKER_00.0"]["interjection_of"] is None
+    assert events["b0:SPEAKER_00.0"]["utterance_id"] == str(host_utterance.id)
 
     # Clustering: the two sub-label prints pass the clean-talk gate and land
     # in different clusters (orthogonal voices); the old-style label reported

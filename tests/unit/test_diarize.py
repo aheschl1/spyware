@@ -19,6 +19,7 @@ from processing.pipelines.diarize import (
     DiarizePipeline,
     Utterance,
     blocks_from_spans,
+    interjection_hosts,
     split_labels,
     utterances_from_turns,
 )
@@ -583,3 +584,52 @@ def test_overcap_split_prorates_overlap_between_pieces() -> None:
     pieces = pipeline._utterance_artifacts(job, turn_rows, raw)
     assert len(pieces) == 2
     assert [piece.metadata["overlap_ms"] for piece in pieces] == [300, 300]
+
+
+# --- interjections
+
+
+def test_contained_other_speaker_is_an_interjection() -> None:
+    assert interjection_hosts([(0, 4_000, "a"), (1_000, 1_500, "b")]) == {1: 0}
+
+
+def test_partial_overlap_is_not_an_interjection() -> None:
+    assert interjection_hosts([(0, 4_000, "a"), (3_000, 5_000, "b")]) == {}
+
+
+def test_same_speaker_and_identical_spans_do_not_host() -> None:
+    assert interjection_hosts([(0, 4_000, "a"), (1_000, 1_500, "a")]) == {}
+    assert interjection_hosts([(0, 4_000, "a"), (0, 4_000, "b")]) == {}
+
+
+def test_nested_containment_picks_the_outermost_host() -> None:
+    spans = [(0, 10_000, "a"), (1_000, 6_000, "b"), (2_000, 3_000, "c")]
+    assert interjection_hosts(spans) == {1: 0, 2: 0}
+
+
+def test_multiple_hosts_prefer_earliest_then_longest() -> None:
+    earliest = [(1_000, 6_000, "a"), (0, 6_000, "d"), (2_000, 3_000, "b")]
+    assert interjection_hosts(earliest)[2] == 1
+    longest = [(0, 5_000, "a"), (0, 8_000, "e"), (2_000, 3_000, "b")]
+    assert interjection_hosts(longest)[2] == 1
+
+
+def test_host_choice_ignores_input_order() -> None:
+    spans = [(2_000, 3_000, "c"), (0, 10_000, "a"), (1_000, 6_000, "b")]
+    assert interjection_hosts(spans) == {0: 1, 2: 1}
+
+
+def test_utterance_artifacts_count_interjections_on_hosts() -> None:
+    pipeline = _pipeline()
+    job = _job()
+    turns = [_turn(0, 4_000, "SPEAKER_00"), _turn(1_000, 1_500, "SPEAKER_01")]
+    turn_rows = pipeline._turn_artifacts(job, Block(0, 5_000), turns)
+    raw = [(row.start_ms, row.end_ms, row.metadata["speaker"]) for row in turn_rows]
+    by_speaker = {
+        row.metadata["speaker"]: row
+        for row in pipeline._utterance_artifacts(job, turn_rows, raw)
+    }
+    assert by_speaker["b0:SPEAKER_00"].metadata["interjections"] == 1
+    assert "interjections" not in by_speaker["b0:SPEAKER_01"].metadata
+    # The host link needs ids, which only exist at publication.
+    assert by_speaker["b0:SPEAKER_01"].links == {}

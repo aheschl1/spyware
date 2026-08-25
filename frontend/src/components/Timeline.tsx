@@ -192,11 +192,12 @@ export default function Timeline({
       case "transcript": {
         if (hidden.has("transcript")) return null
         const active = activeId != null && activeId === event.artifact_id + event.start_ms
+        const interjection = event.interjection_of != null
         return (
           <div
             key={key}
             ref={flash ? flashRef : undefined}
-            className={`event transcript ${flash ? "flash" : ""} ${active ? "playing" : ""}`}
+            className={`event transcript ${interjection ? "interjection" : ""} ${flash ? "flash" : ""} ${active ? "playing" : ""}`}
           >
             <button
               className="event-time"
@@ -206,6 +207,14 @@ export default function Timeline({
               {fmtClock(event.at_ms)}
             </button>
             <div className="event-body">
+              {interjection && (
+                <span
+                  className="badge interjection"
+                  title="spoken during another speaker's utterance; their transcript contains these words too"
+                >
+                  interjection
+                </span>
+              )}
               {(event.speaker || event.speaker_id) && (
                 <SpeakerChip
                   clusterId={event.speaker_id}

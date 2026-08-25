@@ -45,6 +45,7 @@ class TranscriptHit(BaseModel):
     snippet: str  # [[..]]-delimited for strict hits; the raw text for fuzzy
     score: float
     metadata: dict[str, Any]
+    links: dict[str, Any] = {}
     created_at: datetime
 
 
@@ -79,7 +80,7 @@ class TranscriptSearchRepo(BaseRepo):
                                    '{_HEADLINE_OPTIONS}') AS snippet,
                        ts_rank_cd(to_tsvector('english', a.metadata->>'text'),
                                   query, 2) AS score,
-                       a.metadata, a.created_at
+                       a.metadata, a.links, a.created_at
                 FROM pipeline_artifacts a
                 JOIN recording_sessions s ON s.id = a.session_id,
                      websearch_to_tsquery('english', %s) query
@@ -119,7 +120,7 @@ class TranscriptSearchRepo(BaseRepo):
                        a.metadata->>'text' AS text,
                        a.metadata->>'text' AS snippet,
                        word_similarity(%s, a.metadata->>'text') AS score,
-                       a.metadata, a.created_at
+                       a.metadata, a.links, a.created_at
                 FROM pipeline_artifacts a
                 JOIN recording_sessions s ON s.id = a.session_id
                 WHERE a.pipeline = 'transcribe' AND a.kind = 'transcript'

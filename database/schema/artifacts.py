@@ -33,6 +33,21 @@ class PipelineArtifact(BaseModel):
     updated_at: datetime
 
 
+def parse_uuid(value: Any) -> UUID | None:
+    """A link value as a UUID; None when missing or malformed."""
+    try:
+        return UUID(str(value)) if value else None
+    except ValueError:
+        return None
+
+
+def host_link(utterance: PipelineArtifact) -> dict[str, str]:
+    """The ``host_utterance`` link to copy onto anything derived from an
+    interjection utterance (empty for ordinary utterances)."""
+    host = utterance.links.get("host_utterance")
+    return {"host_utterance": host} if host else {}
+
+
 class ArtifactCreate(BaseModel):
     """Input for recording an artifact."""
 

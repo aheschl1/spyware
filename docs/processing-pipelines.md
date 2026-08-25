@@ -197,6 +197,21 @@ each tier discovers its own input):
    wrong transcript. A backchannel within the budget still merges — a grunt
    shouldn't split a sentence.
 
+   That gate only sees the *gaps* between merged turns. Speech that lands
+   entirely inside another speaker's utterance is different: both are
+   transcribed (the host's clip contains the interjection's words, and the
+   interjection gets its own utterance), and the relationship is stored as
+   an **interjection**. An utterance contained by a different speaker's
+   utterance (identical spans excluded) is published with
+   `links.host_utterance` pointing at the host, which carries an
+   `interjections` count in metadata; among several containing hosts the
+   earliest-starting, then longest, wins — always an outermost span, so
+   interjections never host and nesting resolves to the outermost. Partial
+   overlaps (turn hand-offs) are not interjections. Hosts are inserted
+   first so the link is an id, in the same transaction; the `diarize-map`
+   counts `interjections`. The timeline renders an interjection nested
+   under its host; the host's text is left as ASR produced it.
+
    Publication is atomic: delete-previous + insert-all + `diarize-map` in one
    transaction — vectors included — **and it deletes the session's
    transcripts too**: they derive from utterances that no longer exist, and
@@ -215,7 +230,11 @@ each tier discovers its own input):
    to the transcription service, and records a `transcript` artifact on the
    same range — full text, speaker label, model, and the utterance's
    `overlap_ms` in metadata (crosstalk stays queryable per transcript
-   without joining back to the utterance); **no blob** (utterances are
+   without joining back to the utterance), and the utterance's
+   `host_utterance` link copied alongside `links.utterance` when it is an
+   interjection — the A/B candidate and vote paths copy it too, and
+   readers (timeline `interjection_of`, transcript search, speaker
+   transcript lists) expose it; **no blob** (utterances are
    short, the row is the store). When diarize republishes,
    utterances get new ids, so the anti-join re-enqueues them and queued jobs
    whose utterance vanished skip themselves. Transcripts therefore wait on

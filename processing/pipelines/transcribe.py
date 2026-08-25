@@ -89,6 +89,7 @@ class TranscribePipeline(Pipeline):
                     "end_ms": utterance.end_ms,
                     "speaker": utterance.metadata.get("speaker"),
                     "overlap_ms": utterance.metadata.get("overlap_ms"),
+                    "host_utterance": utterance.links.get("host_utterance"),
                 },
                 dedup_key=f"{self.name}:artifact:{utterance.id}",
             )
@@ -105,6 +106,12 @@ class TranscribePipeline(Pipeline):
         start_ms, end_ms = job.payload["start_ms"], job.payload["end_ms"]
         speaker = job.payload.get("speaker")
         overlap_ms = job.payload.get("overlap_ms")
+        # Set when this utterance was spoken entirely inside another
+        # speaker's (the host's) — the host transcript also carries these
+        # words; the link is what lets a reader nest this one under it.
+        links = {"utterance": str(job.artifact_id)}
+        if host := job.payload.get("host_utterance"):
+            links["host_utterance"] = host
 
         try:
             line = await self._timeline_for(job.session_id, end_ms)
@@ -162,7 +169,7 @@ class TranscribePipeline(Pipeline):
                     session_id=job.session_id,
                     start_ms=start_ms,
                     end_ms=end_ms,
-                    links={"utterance": str(job.artifact_id)},
+                    links=links,
                     metadata=metadata,
                 )
             )

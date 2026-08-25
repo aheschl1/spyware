@@ -6694,6 +6694,19 @@
             ],
             "title": "Model",
             "description": "The transcription model."
+          },
+          "interjection_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interjection Of",
+            "description": "Host utterance id when this was spoken entirely inside another speaker's utterance."
           }
         },
         "type": "object",
@@ -7164,6 +7177,32 @@
             ],
             "title": "Speaker Name",
             "description": "The cluster's user-given label, if it has one."
+          },
+          "utterance_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utterance Id",
+            "description": "The diarized utterance this transcript renders."
+          },
+          "interjection_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interjection Of",
+            "description": "Set when the utterance was spoken entirely inside another speaker's utterance (the host, by utterance id). The host's transcript contains these words too \u2014 clients render this one nested under it. Null for ordinary turns."
           }
         },
         "type": "object",
@@ -7210,6 +7249,19 @@
             ],
             "title": "Speaker",
             "description": "Diarized speaker label (block-namespaced)."
+          },
+          "interjection_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interjection Of",
+            "description": "Host utterance id when this was spoken entirely inside another speaker's utterance; the host's transcript contains these words too."
           },
           "score": {
             "type": "number",

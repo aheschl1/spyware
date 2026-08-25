@@ -102,6 +102,16 @@ class TranscriptEvent(ArtifactEventBase):
     speaker_name: str | None = Field(
         None, description="The cluster's user-given label, if it has one."
     )
+    utterance_id: UUID | None = Field(
+        None, description="The diarized utterance this transcript renders."
+    )
+    interjection_of: UUID | None = Field(
+        None,
+        description="Set when the utterance was spoken entirely inside another "
+        "speaker's utterance (the host, by utterance id). The host's transcript "
+        "contains these words too — clients render this one nested under it. "
+        "Null for ordinary turns.",
+    )
 
 
 class AudioTagLabel(BaseModel):

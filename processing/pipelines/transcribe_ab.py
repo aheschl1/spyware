@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from database.pipe import DatabasePipe
-from database.schema.artifacts import ArtifactCreate, PipelineArtifact
+from database.schema.artifacts import ArtifactCreate, PipelineArtifact, host_link
 from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.config import get_settings
@@ -213,6 +213,6 @@ class TranscribeAbPipeline(Pipeline):
             session_id=job.session_id,
             start_ms=utterance.start_ms,
             end_ms=utterance.end_ms,
-            links={"utterance": str(utterance.id)},
+            links={"utterance": str(utterance.id), **host_link(utterance)},
             metadata=metadata,
         )
