@@ -27,7 +27,7 @@ from api.schema.ab import (
     AbVoteResponse,
 )
 from database.repos.pipelines.transcribe_ab import AbQueries
-from database.schema.artifacts import ArtifactCreate
+from database.schema.artifacts import ArtifactCreate, host_link
 from database.schema.jobs import JobCreate
 
 router = APIRouter(tags=["ab"])
@@ -174,7 +174,7 @@ async def vote(
                 session_id=session.id,
                 start_ms=utterance.start_ms,
                 end_ms=utterance.end_ms,
-                links={"utterance": str(utterance.id)},
+                links={"utterance": str(utterance.id), **host_link(utterance)},
                 metadata={
                     **patch,
                     "model": model,

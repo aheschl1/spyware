@@ -32,6 +32,7 @@ def _artifact(
     start_ms: int | None = None,
     end_ms: int | None = None,
     metadata: dict[str, Any] | None = None,
+    links: dict[str, Any] | None = None,
 ) -> PipelineArtifact:
     return PipelineArtifact(
         id=uuid4(),
@@ -40,6 +41,7 @@ def _artifact(
         session_id=uuid4(),
         start_ms=start_ms,
         end_ms=end_ms,
+        links=links or {},
         metadata=metadata or {},
         created_at=_NOW,
         updated_at=_NOW,
@@ -209,6 +211,29 @@ def test_transcript_speaker_and_missing_metadata() -> None:
     assert spoken.speaker == "b0:SPEAKER_01" and spoken.chars == 2
     assert empty.text == "" and empty.chars == 0 and empty.speaker is None
     assert empty.model is None
+
+
+def test_transcript_carries_utterance_and_host_links() -> None:
+    utterance, host = uuid4(), uuid4()
+    interjection = _artifact(
+        "transcribe",
+        "transcript",
+        1_000,
+        1_500,
+        {"text": "yeah"},
+        links={"utterance": str(utterance), "host_utterance": str(host)},
+    )
+    plain = _artifact("transcribe", "transcript", 0, 4_000, {"text": "hi"})
+    broken = _artifact(
+        "transcribe", "transcript", 5_000, 6_000, {"text": "x"},
+        links={"utterance": "not-a-uuid", "host_utterance": ""},
+    )
+
+    first, second, third = assemble(_session(), [interjection, plain, broken])[1:]
+
+    assert first.utterance_id is None and first.interjection_of is None
+    assert second.utterance_id == utterance and second.interjection_of == host
+    assert third.utterance_id is None and third.interjection_of is None
 
 
 def test_missing_confidence_and_null_spans_are_tolerated() -> None:

@@ -30,7 +30,8 @@ COLUMNS = "id, user_id, name, model, centroid::text AS centroid, created_at, upd
 _TRANSCRIPT_COLUMNS = """
     t.id AS artifact_id, t.session_id, e.speaker_id, e.speaker,
     t.start_ms, t.end_ms,
-    coalesce(t.metadata->>'text', '') AS text, t.metadata->>'model' AS model
+    coalesce(t.metadata->>'text', '') AS text, t.metadata->>'model' AS model,
+    (t.links->>'host_utterance')::uuid AS interjection_of
 """
 
 

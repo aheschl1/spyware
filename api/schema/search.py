@@ -10,6 +10,7 @@ from api.schema.timeline import AudioTagLabel
 from database.repos.embeddings import AudioSearchHit
 from database.repos.tags import TagLabelCount, TagWindowHit
 from database.repos.transcripts import TranscriptHit
+from database.schema.artifacts import parse_uuid
 
 
 class AudioSearchRead(BaseModel):
@@ -150,6 +151,12 @@ class TranscriptSearchRead(BaseModel):
     start_ms: int
     end_ms: int
     speaker: str | None = Field(None, description="Diarized speaker label (block-namespaced).")
+    interjection_of: UUID | None = Field(
+        None,
+        description="Host utterance id when this was spoken entirely inside "
+        "another speaker's utterance; the host's transcript contains these "
+        "words too.",
+    )
     score: float = Field(
         description="Cover-density rank (strict) or trigram word-similarity "
         "(fuzzy); comparable within one response only."
@@ -166,6 +173,7 @@ class TranscriptSearchRead(BaseModel):
             start_ms=hit.start_ms,
             end_ms=hit.end_ms,
             speaker=hit.metadata.get("speaker"),
+            interjection_of=parse_uuid(hit.links.get("host_utterance")),
             score=hit.score,
             segments=tuple(
                 [SnippetSegment(text=hit.snippet, match=False)]

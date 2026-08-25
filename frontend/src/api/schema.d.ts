@@ -2435,6 +2435,11 @@ export interface components {
              * @description The transcription model.
              */
             model?: string | null;
+            /**
+             * Interjection Of
+             * @description Host utterance id when this was spoken entirely inside another speaker's utterance.
+             */
+            interjection_of?: string | null;
         };
         /**
          * SpeakerUnpinResponse
@@ -2706,6 +2711,16 @@ export interface components {
              * @description The cluster's user-given label, if it has one.
              */
             speaker_name?: string | null;
+            /**
+             * Utterance Id
+             * @description The diarized utterance this transcript renders.
+             */
+            utterance_id?: string | null;
+            /**
+             * Interjection Of
+             * @description Set when the utterance was spoken entirely inside another speaker's utterance (the host, by utterance id). The host's transcript contains these words too — clients render this one nested under it. Null for ordinary turns.
+             */
+            interjection_of?: string | null;
         };
         /**
          * TranscriptSearchRead
@@ -2732,6 +2747,11 @@ export interface components {
              * @description Diarized speaker label (block-namespaced).
              */
             speaker?: string | null;
+            /**
+             * Interjection Of
+             * @description Host utterance id when this was spoken entirely inside another speaker's utterance; the host's transcript contains these words too.
+             */
+            interjection_of?: string | null;
             /**
              * Score
              * @description Cover-density rank (strict) or trigram word-similarity (fuzzy); comparable within one response only.

@@ -145,3 +145,4 @@ class SpeakerTranscript(BaseModel):
     end_ms: int
     text: str
     model: str | None = None  # transcription model
+    interjection_of: UUID | None = None  # host utterance, when an interjection

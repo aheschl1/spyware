@@ -110,6 +110,11 @@ class SpeakerTranscriptRead(BaseModel):
     end_ms: int
     text: str
     model: str | None = Field(None, description="The transcription model.")
+    interjection_of: UUID | None = Field(
+        None,
+        description="Host utterance id when this was spoken entirely inside "
+        "another speaker's utterance.",
+    )
 
     @classmethod
     def from_model(cls, row: SpeakerTranscript) -> "SpeakerTranscriptRead":
@@ -122,6 +127,7 @@ class SpeakerTranscriptRead(BaseModel):
             end_ms=row.end_ms,
             text=row.text,
             model=row.model,
+            interjection_of=row.interjection_of,
         )
 
 

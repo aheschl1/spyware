@@ -26,7 +26,7 @@ from api.schema.timeline import (
     TimelineEvent,
     TranscriptEvent,
 )
-from database.schema.artifacts import PipelineArtifact
+from database.schema.artifacts import PipelineArtifact, parse_uuid
 from database.schema.segments import ResourceSegment
 from database.schema.sessions import RecordingSession
 from database.schema.speakers import SessionSpeakerLabel
@@ -88,6 +88,8 @@ def _transcript_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
         chars=artifact.metadata.get("chars", len(text)),
         model=artifact.metadata.get("model"),
         speaker=artifact.metadata.get("speaker"),
+        utterance_id=parse_uuid(artifact.links.get("utterance")),
+        interjection_of=parse_uuid(artifact.links.get("host_utterance")),
     )
 
 

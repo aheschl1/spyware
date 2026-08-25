@@ -48,6 +48,7 @@ partial output is never visible and retries are idempotent.
 
 import logging
 import math
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any
@@ -205,6 +206,31 @@ def utterances_from_turns(
                 )
     out.sort(key=lambda u: (u.start_ms, u.end_ms, u.speaker))
     return out
+
+
+def interjection_hosts(spans: Sequence[tuple[int, int, str]]) -> dict[int, int]:
+    """Map interjection index -> host index.
+
+    ``B`` is an interjection of ``A`` when the speakers differ and ``A``
+    contains ``B`` (identical spans excluded). Among several hosts the
+    earliest-starting, then longest, wins — that one is always a root (no
+    span contains it), so an interjection never hosts and nested
+    containment resolves to the outermost span.
+    """
+    order = sorted(range(len(spans)), key=lambda i: (spans[i][0], -spans[i][1]))
+    roots: list[int] = []
+    hosts: dict[int, int] = {}
+    for index in order:
+        start, end, speaker = spans[index]
+        roots = [r for r in roots if spans[r][1] > start]
+        for root in roots:
+            r_start, r_end, r_speaker = spans[root]
+            if r_end >= end and r_speaker != speaker and (r_start, r_end) != (start, end):
+                hosts[index] = root
+                break
+        else:
+            roots.append(index)
+    return hosts
 
 
 def _unit_centroid(vectors: Sequence[Sequence[float]]) -> np.ndarray:
@@ -477,7 +503,9 @@ class DiarizePipeline(Pipeline):
         utterance carries ``overlap_ms`` — its turns' overlap prorated by
         how much of each turn falls inside the utterance span (over-cap
         turns are split into pieces) — so "this transcript contains
-        overlapped speech" stays queryable downstream.
+        overlapped speech" stays queryable downstream. Hosts of
+        interjections (see ``interjection_hosts``) carry their count; the
+        host link itself is written at publication, once ids exist.
         """
         settings = self._settings
         blocks_by_speaker = {
@@ -499,8 +527,12 @@ class DiarizePipeline(Pipeline):
             crosstalk_max_ms=settings.diarize_merge_crosstalk_max_ms,
             crosstalk_turns=raw_turns,
         )
+        hosts = interjection_hosts(
+            [(u.start_ms, u.end_ms, u.speaker) for u in utterances]
+        )
+        interjections = Counter(hosts.values())
         rows = []
-        for utterance in utterances:
+        for index, utterance in enumerate(utterances):
             block_start, block_end = blocks_by_speaker[utterance.speaker]
             overlap_ms = 0
             for start, end, turn_overlap in rows_by_speaker[utterance.speaker]:
@@ -520,6 +552,11 @@ class DiarizePipeline(Pipeline):
                         "block_start_ms": block_start,
                         "block_end_ms": block_end,
                         "overlap_ms": overlap_ms,
+                        **(
+                            {"interjections": interjections[index]}
+                            if index in interjections
+                            else {}
+                        ),
                     },
                 )
             )
@@ -630,10 +667,14 @@ class DiarizePipeline(Pipeline):
         if skipped:
             logger.info("diarize skipping session %s: %s", job.session_id, skipped)
         settings = self._settings
+        hosts = interjection_hosts(
+            [(u.start_ms, u.end_ms, u.metadata["speaker"]) for u in utterances]
+        )
         map_metadata: dict[str, Any] = {
             "blocks": blocks,
             "turns": len(turns),
             "utterances": len(utterances),
+            "interjections": len(hosts),
             "speakers": len(embeddings),
             "params": {
                 "block_merge_gap_ms": settings.diarize_block_merge_gap_ms,
@@ -657,7 +698,23 @@ class DiarizePipeline(Pipeline):
             # vanished skip themselves (artifact_id goes NULL).
             await pipe.artifacts.delete_for_pipeline(job.session_id, "transcribe")
             await pipe.artifacts.create_many(turns)
-            await pipe.artifacts.create_many(utterances)
+            # Hosts first (never interjections themselves), so the
+            # interjections can link to their ids in the same transaction.
+            plain = [i for i in range(len(utterances)) if i not in hosts]
+            created_hosts = await pipe.artifacts.create_many(
+                [utterances[i] for i in plain]
+            )
+            id_by_index = {
+                i: artifact.id for i, artifact in zip(plain, created_hosts, strict=True)
+            }
+            await pipe.artifacts.create_many(
+                [
+                    utterances[i].model_copy(
+                        update={"links": {"host_utterance": str(id_by_index[host])}}
+                    )
+                    for i, host in hosts.items()
+                ]
+            )
             created = await pipe.artifacts.create_many([row for row, _ in embeddings])
             await pipe.embeddings.create_many(
                 [
@@ -683,6 +740,7 @@ class DiarizePipeline(Pipeline):
             "blocks": blocks,
             "turns": len(turns),
             "utterances": len(utterances),
+            "interjections": len(hosts),
             "speakers": len(embeddings),
         }
         if skipped:
