@@ -63,6 +63,7 @@ from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.clustering import cluster_corpus
 from processing.config import get_settings
+from processing.pipelines.speaker_cluster import lock_user_clustering
 from services import label_carry
 from processing.diarizer import Diarizer, Turn
 from resources import Resource
@@ -692,6 +693,11 @@ class DiarizePipeline(Pipeline):
         if skipped:
             map_metadata["skipped"] = skipped
         async with DatabasePipe() as pipe:
+            session = await pipe.sessions.get(job.session_id)
+            if session is not None:
+                # The delete cascades into speaker_embeddings, which a
+                # concurrent cluster rebuild updates wholesale.
+                await lock_user_clustering(pipe, session.user_id)
             await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
             # Transcripts derive from utterances this delete just invalidated;
             # leaving them would show stale generations on the timeline, so

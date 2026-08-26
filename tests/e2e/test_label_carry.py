@@ -70,7 +70,9 @@ async def test_curation_survives_rediarize(
         diarize_map = await pipe.artifacts.find("diarize", "diarize-map", session.id)
         labels = await pipe.speakers.labels_for_session(session.id)
     assert diarize_map is not None
-    assert diarize_map.metadata["carried"] == {"pins": 1, "assignments": 1, "unmapped": 0}
+    assert diarize_map.metadata["carried"] == {
+        "pins": 1, "assignments": 1, "unmapped": 0, "vanished": 0
+    }
     # Fresh voice-prints (new artifact ids), same identities under the same labels.
     assert {l.speaker: str(l.speaker_id) for l in labels} == old_labels
     assert {l.name for l in labels} == {"Mom", "Dad"}
@@ -107,3 +109,33 @@ async def test_snapshot_never_overwrites_curation_with_nothing(
         await pipe.artifacts.delete_for_pipeline(session.id, "diarize")
         second = await label_carry.snapshot(pipe, session.id)
     assert second.id == first.id
+
+
+async def test_pruned_cluster_in_snapshot_is_skipped_not_fatal(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    """A rebuild mid-rerun prunes empty unnamed clusters; a snapshot naming
+    one must not kill the diarize job."""
+    from uuid import uuid4
+
+    from services import label_carry
+
+    session = await _diarized_session(account)
+    async with DatabasePipe() as pipe:
+        snap = await label_carry.snapshot(pipe, session.id)
+        labels = snap.metadata["labels"]
+        labels[0]["speaker_id"] = str(uuid4())
+        await pipe.artifacts.merge_metadata(snap.id, {"labels": labels})
+    result = subprocess.run(
+        [sys.executable, "-m", "cli.main", "sessions", "rediarize", str(session.id), "--yes"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    await wait_for_job(session.id, "diarize", JobStatus.SUCCEEDED)
+    async with DatabasePipe() as pipe:
+        diarize_map = await pipe.artifacts.find("diarize", "diarize-map", session.id)
+    assert diarize_map is not None
+    assert diarize_map.metadata["carried"]["vanished"] == 1
+    assert diarize_map.metadata["carried"]["assignments"] == 1

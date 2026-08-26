@@ -78,13 +78,18 @@ async def apply_labels(
     records = label_records(snap.metadata)
     mapping = map_labels({r.speaker: r.spans for r in records}, new_spans)
 
-    counts = {"pins": 0, "assignments": 0, "unmapped": 0}
+    counts = {"pins": 0, "assignments": 0, "unmapped": 0, "vanished": 0}
     for record in records:
         target = mapping.get(record.speaker)
         if target is None:
             counts["unmapped"] += 1
             continue
         identity = UUID(record.speaker_id)
+        if await pipe.speakers.get(identity) is None:
+            # An unnamed cluster pruned by a rebuild that ran mid-rerun; it
+            # held no curation, and the next rebuild re-forms it.
+            counts["vanished"] += 1
+            continue
         if record.pinned:
             if target != record.speaker:
                 await pipe.label_carry.unpin_label(session_id, record.speaker, record.model)
