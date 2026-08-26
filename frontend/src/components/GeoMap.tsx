@@ -2,10 +2,21 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { api, type SessionTrackRead } from "../api/client"
 import { fmtDate, shortId } from "../format"
 import { fmtCoords, splitAtGaps, TRACK_GAP_MS } from "../location"
-import { createTrackMap, type TrackMapHandle, type TrackPt } from "../map/trackMap"
+import { createTrackMap, type MapMode, type TrackMapHandle, type TrackPt } from "../map/trackMap"
 import { hue } from "../speakers"
+import { useSearchParam } from "../useParam"
 
 const MAX_POINTS = 500
+
+const MODES: { key: MapMode; label: string }[] = [
+  { key: "lines", label: "lines" },
+  { key: "arrows", label: "arrows" },
+  { key: "heat", label: "heat" },
+]
+
+function asMode(v: string): MapMode {
+  return MODES.some((m) => m.key === v) ? (v as MapMode) : "lines"
+}
 
 // The backend caps the tracks window at 92 days; a [from, to] pair spans
 // to - from + 1 days, so the pickers keep the dates within 91 of each other.
@@ -54,6 +65,8 @@ export default function GeoMap({
   onOpen: (sessionId: string, seekMs?: number) => void
 }) {
   const [range, setRange] = useState(defaultRange)
+  const [modeParam, setModeParam] = useSearchParam("mode", "lines")
+  const mode = asMode(modeParam)
   const [tracks, setTracks] = useState<SessionTrackRead[] | null>(null)
   const [error, setError] = useState(false)
   const [selected, setSelected] = useState<{ sessionId: string; pt: TrackPt } | null>(null)
@@ -126,12 +139,17 @@ export default function GeoMap({
           id: `${track.session_id}:${i}`,
           color: trackColor(track),
           label: trackName(track),
+          weight: stride,
           points: segment.map((p) => ({ atMs: p.at_ms, lat: p.lat, lon: p.lon })),
         }))
       }),
     )
     handle.fitTracks()
   }, [handle, tracks])
+
+  useEffect(() => {
+    handle?.setMode(mode)
+  }, [handle, mode])
 
   const totalFixes = useMemo(
     () => (tracks ?? []).reduce((sum, t) => sum + t.point_count, 0),
@@ -166,6 +184,17 @@ export default function GeoMap({
             onChange={(e) => e.target.value && setRange((r) => ({ ...r, to: e.target.value }))}
           />
         </label>
+        <div className="mode-toggle">
+          {MODES.map((m) => (
+            <button
+              key={m.key}
+              className={`mode ${m.key === mode ? "active" : ""}`}
+              onClick={() => setModeParam(m.key)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
         {tracks && tracks.length > 0 && (
           <span className="row-dim">
             {tracks.length} session{tracks.length === 1 ? "" : "s"} · {totalFixes} fixes
@@ -182,6 +211,7 @@ export default function GeoMap({
           {mapFailed && <div className="geo-empty">couldn't load the map</div>}
         </div>
         <aside className="geo-legend">
+          {mode === "heat" && <div className="row-dim">brighter = more time spent</div>}
           {selected && selectedTrack && (
             <div className="geo-point-card">
               <div className="geo-point-head">
