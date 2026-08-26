@@ -1,9 +1,10 @@
 """Tier: group a session's utterances into conversations by inter-turn gap.
 
 A conversation closes when the silence between one utterance's end and the
-next's start exceeds ``gap_ms``; a lone utterance is never a conversation.
-Every boundary records why it was placed, so a later adjudicator (speaker
-churn, an LLM) can revisit proposed boundaries without changing the shape.
+next's start exceeds ``gap_ms``, and never spans a diarization block, so its
+labels stay consistent; a second pass then splits it where the participants
+change. A lone utterance is never a conversation. Every boundary records why
+it was placed, so a later adjudicator (an LLM) can revisit it.
 """
 
 import logging
@@ -27,7 +28,7 @@ _SOURCE_PIPELINE = "diarize"
 # Utterances are ≥300ms each; this is days of nonstop speech.
 _MAX_UTTERANCES = 200_000
 
-Boundary = Literal["gap", "session_start", "session_end"]
+Boundary = Literal["gap", "block", "speaker_change", "session_start", "session_end"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,21 +132,36 @@ def summarize(members: Sequence[Turn]) -> Stats:
 def group_conversations(
     turns: Sequence[Turn], *, gap_ms: int, min_turns: int
 ) -> list[Conversation]:
-    """Runs of turns never separated by more than ``gap_ms`` of silence."""
+    """Runs of turns never separated by more than ``gap_ms`` of silence.
+
+    A run also closes at a block seam: labels are block-local, so nothing
+    downstream could compare speakers across one. Silence past ``gap_ms`` is
+    stamped ``gap``; a seam inside the tolerance (the block cap) ``block``.
+    """
     ordered = sorted(turns, key=lambda t: (t.start_ms, t.end_ms, str(t.id)))
     runs: list[list[Turn]] = []
+    closures: list[Boundary] = []  # why runs[i] closed
     end = 0
     for turn in ordered:
-        if runs and turn.start_ms - end <= gap_ms:
+        if runs and turn.start_ms - end > gap_ms:
+            closures.append("gap")
+            runs.append([turn])
+        elif runs and turn.block_start_ms != runs[-1][-1].block_start_ms:
+            closures.append("block")
+            runs.append([turn])
+        elif runs:
             runs[-1].append(turn)
         else:
             runs.append([turn])
         end = max(end, turn.end_ms)
+    closures.append("session_end")
+    return _assemble(runs, closures)
 
+
+def _assemble(runs: Sequence[Sequence[Turn]], closures: Sequence[Boundary]) -> list[Conversation]:
+    """Conversations from adjacent runs; ``closures[i]`` is why run i ended."""
     out: list[Conversation] = []
     for index, run in enumerate(runs):
-        if len(run) < min_turns:
-            continue
         stats = summarize(run)
         prev_end = max(t.end_ms for t in runs[index - 1]) if index > 0 else None
         next_start = runs[index + 1][0].start_ms if index + 1 < len(runs) else None
@@ -153,13 +169,111 @@ def group_conversations(
             Conversation(
                 members=tuple(run),
                 stats=stats,
-                opening="gap" if prev_end is not None else "session_start",
-                closure="gap" if next_start is not None else "session_end",
+                opening=closures[index - 1] if index > 0 else "session_start",
+                closure=closures[index],
                 gap_before_ms=None if prev_end is None else stats.start_ms - prev_end,
                 gap_after_ms=None if next_start is None else next_start - stats.end_ms,
             )
         )
     return out
+
+
+def user_labels(turns: Iterable[Turn]) -> dict[int | None, str]:
+    """Per block, the label with the most talk — the user, who is in every
+    conversation and so must not count as a participant."""
+    talk: dict[int | None, dict[str, int]] = {}
+    for turn in turns:
+        if turn.speaker is not None:
+            per_block = talk.setdefault(turn.block_start_ms, {})
+            per_block[turn.speaker] = per_block.get(turn.speaker, 0) + turn.end_ms - turn.start_ms
+    return {
+        block: max(sorted(per_block), key=lambda label: per_block[label])
+        for block, per_block in talk.items()
+    }
+
+
+def split_on_churn(
+    conversation: Conversation,
+    *,
+    user: str | None,
+    window: int,
+    min_turns: int,
+) -> list[Conversation]:
+    """Split where the participants change.
+
+    At each cut, the non-user speaker sets of the ``window`` turns before
+    and after must be disjoint, each side holding at least ``min_turns``
+    non-user turns. Scanning resumes after a cut so one shift yields one
+    split. Labels are block-local; callers guarantee one block per input.
+    """
+    members = list(conversation.members)
+    if window < 1 or len(members) < 2 * window:
+        return [conversation]
+
+    def others(turns: Sequence[Turn]) -> list[str]:
+        return [t.speaker for t in turns if t.speaker is not None and t.speaker != user]
+
+    cuts: list[int] = []
+    i = window
+    while i <= len(members) - window:
+        before, after = others(members[i - window : i]), others(members[i : i + window])
+        if (
+            len(before) >= min_turns
+            and len(after) >= min_turns
+            and not set(before) & set(after)
+        ):
+            cuts.append(i)
+            i += window
+        else:
+            i += 1
+    if not cuts:
+        return [conversation]
+
+    bounds = [0, *cuts, len(members)]
+    runs = [members[a:b] for a, b in zip(bounds, bounds[1:])]
+    pieces = _assemble(runs, ["speaker_change"] * len(cuts) + [conversation.closure])
+    first, last = pieces[0], pieces[-1]
+    pieces[0] = Conversation(
+        members=first.members,
+        stats=first.stats,
+        opening=conversation.opening,
+        closure=first.closure,
+        gap_before_ms=conversation.gap_before_ms,
+        gap_after_ms=first.gap_after_ms,
+    )
+    pieces[-1] = Conversation(
+        members=last.members,
+        stats=last.stats,
+        opening=last.opening,
+        closure=conversation.closure,
+        gap_before_ms=last.gap_before_ms,
+        gap_after_ms=conversation.gap_after_ms,
+    )
+    return pieces
+
+
+def build_conversations(
+    turns: Sequence[Turn],
+    *,
+    gap_ms: int,
+    min_turns: int,
+    churn_window: int,
+    churn_min_turns: int,
+) -> list[Conversation]:
+    """The whole pure chain: gap/block grouping, speaker-shift splits, then
+    the ``min_turns`` floor (applied last so a split's short remainder is
+    dropped, not silently kept)."""
+    users = user_labels(turns)
+    out: list[Conversation] = []
+    for conversation in group_conversations(turns, gap_ms=gap_ms, min_turns=min_turns):
+        block = conversation.members[0].block_start_ms
+        out += split_on_churn(
+            conversation,
+            user=users.get(block),
+            window=churn_window,
+            min_turns=churn_min_turns,
+        )
+    return [c for c in out if c.stats.turns >= min_turns]
 
 
 def stats_metadata(stats: Stats) -> dict[str, Any]:
@@ -220,8 +334,12 @@ class ConversationPipeline(Pipeline):
         ]
         # Build-time exclusion sources plug in here; none exist yet.
         kept, excluded = apply_exclusions(turns, ())
-        conversations = group_conversations(
-            kept, gap_ms=settings.conversation_gap_ms, min_turns=settings.conversation_min_turns
+        conversations = build_conversations(
+            kept,
+            gap_ms=settings.conversation_gap_ms,
+            min_turns=settings.conversation_min_turns,
+            churn_window=settings.conversation_churn_window,
+            churn_min_turns=settings.conversation_churn_min_turns,
         )
         return await self._publish(
             job, conversations=conversations, utterances=len(turns), excluded=excluded
@@ -267,6 +385,8 @@ class ConversationPipeline(Pipeline):
             "params": {
                 "gap_ms": settings.conversation_gap_ms,
                 "min_turns": settings.conversation_min_turns,
+                "churn_window": settings.conversation_churn_window,
+                "churn_min_turns": settings.conversation_churn_min_turns,
             },
         }
         async with DatabasePipe() as pipe:

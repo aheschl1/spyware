@@ -6,9 +6,12 @@ from processing.pipelines.conversation import (
     Exclusion,
     Turn,
     apply_exclusions,
+    build_conversations,
     group_conversations,
     read_turn,
+    split_on_churn,
     summarize,
+    user_labels,
 )
 
 GAP = 60_000
@@ -19,7 +22,9 @@ def _t(start: int, end: int, speaker: str = "b0:SPEAKER_00", block: int = 0) -> 
 
 
 def _group(turns, **overrides):
-    return group_conversations(turns, **{"gap_ms": GAP, "min_turns": 2, **overrides})
+    """The chain with the speaker-shift pass off (window 0)."""
+    params = {"gap_ms": GAP, "min_turns": 2, "churn_window": 0, "churn_min_turns": 1}
+    return build_conversations(turns, **{**params, **overrides})
 
 
 class TestReadTurn:
@@ -79,6 +84,18 @@ class TestGrouping:
         (conversation,) = _group(turns)
         assert conversation.stats.turns == 3
 
+    def test_block_seam_closes_inside_the_gap_tolerance(self) -> None:
+        # The block cap cut mid-speech: labels restart, so the run must too.
+        turns = [_t(0, 1000, block=0), _t(2000, 3000, block=0), _t(4000, 5000, "b4000:SPEAKER_00", 4000), _t(6000, 7000, "b4000:SPEAKER_01", 4000)]
+        first, second = _group(turns)
+        assert first.closure == "block" and second.opening == "block"
+        assert second.gap_before_ms == 1000
+
+    def test_silence_past_gap_is_stamped_gap_even_at_a_seam(self) -> None:
+        turns = [_t(0, 1000), _t(2000, 3000), _t(3001 + GAP, 4000 + GAP, "b1:S", 3001 + GAP), _t(5000 + GAP, 6000 + GAP, "b1:S", 3001 + GAP)]
+        first, _ = _group(turns)
+        assert first.closure == "gap"
+
     def test_input_order_is_not_trusted(self) -> None:
         turns = [_t(2000, 3000), _t(0, 1000)]
         (conversation,) = _group(turns)
@@ -129,3 +146,62 @@ class TestExclusions:
         turns = [_t(0, 1000)]
         kept, excluded = apply_exclusions(turns, [Exclusion(uuid4(), None, "manual")])
         assert kept == turns and excluded == []
+
+
+def _conv(turns, gap=GAP):
+    (conversation,) = group_conversations(turns, gap_ms=gap, min_turns=1)
+    return conversation
+
+
+def _dialogue(*labels: str, user: str = "me") -> list:
+    """Alternating user/other turns, 1 s each, from a list of others' labels."""
+    out, t = [], 0
+    for label in labels:
+        out.append(_t(t, t + 1000, label if label != "me" else user))
+        t += 1500
+    return out
+
+
+class TestUserLabel:
+    def test_dominant_talk_per_block(self) -> None:
+        turns = [_t(0, 5000, "me"), _t(5000, 6000, "A"), _t(9000, 9500, "B", block=9000), _t(9500, 12_000, "A", block=9000)]
+        assert user_labels(turns) == {0: "me", 9000: "A"}
+
+
+class TestSplitOnChurn:
+    def test_persistent_change_splits(self) -> None:
+        turns = _dialogue("me", "A", "me", "A", "me", "A", "B", "me", "B", "me", "B", "me")
+        pieces = split_on_churn(_conv(turns), user="me", window=4, min_turns=2)
+        assert len(pieces) == 2
+        first, second = pieces
+        assert first.closure == "speaker_change" and second.opening == "speaker_change"
+        assert first.stats.speakers == ("A", "me") and second.stats.speakers == ("B", "me")
+        assert first.gap_after_ms == second.gap_before_ms == 500
+
+    def test_one_interjection_does_not_split(self) -> None:
+        turns = _dialogue("me", "A", "me", "A", "C", "me", "A", "me", "A", "me")
+        assert len(split_on_churn(_conv(turns), user="me", window=4, min_turns=2)) == 1
+
+    def test_user_alone_never_splits(self) -> None:
+        # A phone call: the user is the only voice.
+        turns = _dialogue("me", "me", "me", "me", "me", "me", "me", "me")
+        assert len(split_on_churn(_conv(turns), user="me", window=4, min_turns=2)) == 1
+
+    def test_outer_boundaries_are_preserved(self) -> None:
+        turns = _dialogue("me", "A", "me", "A", "B", "me", "B", "me")
+        source = _conv(turns)
+        first, last = split_on_churn(source, user="me", window=2, min_turns=1)
+        assert first.opening == source.opening == "session_start"
+        assert last.closure == source.closure == "session_end"
+
+    def test_too_short_to_compare(self) -> None:
+        turns = _dialogue("me", "A", "B")
+        assert len(split_on_churn(_conv(turns), user="me", window=4, min_turns=2)) == 1
+
+
+class TestBuildConversations:
+    def test_chain_applies_floor_after_splits(self) -> None:
+        # A→B shift whose B side is one non-user turn short of min_turns=3.
+        turns = _dialogue("me", "A", "me", "A", "me", "A", "B", "me")
+        out = build_conversations(turns, gap_ms=GAP, min_turns=3, churn_window=2, churn_min_turns=1)
+        assert [c.stats.turns for c in out] == [6]

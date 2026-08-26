@@ -225,3 +225,34 @@ async def test_excluding_below_min_turns_deletes_the_conversation(
         f"/v1/sessions/{session.id}/conversations", headers=account.headers
     )
     assert listing.json()["items"] == []
+
+
+async def test_named_speakers_resolve_in_list_and_detail(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    """Through the real diarize → cluster path: a label put on a speaker
+    cluster shows up on the conversation and on each of its transcripts."""
+    from tests.e2e.test_speakers import _diarized_session
+
+    session = await _diarized_session(account)
+    await wait_for_job(session.id, "conversation", JobStatus.SUCCEEDED)
+    speakers = (await client.get("/v1/speakers", headers=account.headers)).json()["items"]
+    target = speakers[0]
+    await client.post(
+        f"/v1/speakers/{target['id']}/label", headers=account.headers, json={"name": "Mom"}
+    )
+
+    (conversation,) = (
+        await client.get(
+            f"/v1/sessions/{session.id}/conversations", headers=account.headers
+        )
+    ).json()["items"]
+    by_id = {s["speaker_id"]: s for s in conversation["speakers"]}
+    assert by_id[target["id"]]["name"] == "Mom"
+    assert all(s["speaker_id"] is not None for s in conversation["speakers"])
+
+    detail = (
+        await client.get(f"/v1/conversations/{conversation['id']}", headers=account.headers)
+    ).json()
+    named = [t for t in detail["transcripts"] if t["speaker_id"] == target["id"]]
+    assert named and all(t["speaker_name"] == "Mom" for t in named)
