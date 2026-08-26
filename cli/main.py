@@ -483,6 +483,52 @@ async def sessions_rediarize(
     click.echo(message)
 
 
+# ------------------------------------------------------------------- conversations
+
+
+@cli.group()
+def conversations() -> None:
+    """The conversation tier's output."""
+
+
+@conversations.command("rebuild")
+@click.argument("session_id", type=click.UUID, required=False)
+@click.option("--all", "every", is_flag=True, help="Every diarized session.")
+@click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
+@async_command
+async def conversations_rebuild(session_id: UUID | None, every: bool, yes: bool) -> None:
+    """Regroup conversations from the existing diarization — no GPU work.
+
+    Deletes the tier's artifacts and job history so discovery re-runs it on
+    each session's current diarize-map. Manual exclusions are lost. Run
+    after clustering settles so the user's labels resolve by identity.
+    """
+    if (session_id is None) == (not every):
+        raise click.UsageError("give a SESSION_ID or --all, not both")
+    async with DatabasePipe() as pipe:
+        if every:
+            targets = await pipe.label_carry.sessions_with_diarize_map()
+        else:
+            assert session_id is not None
+            if await pipe.sessions.get(session_id) is None:
+                raise NotFoundError("session", str(session_id))
+            targets = [session_id]
+    if not targets:
+        click.echo("nothing to rebuild")
+        return
+    if not yes:
+        click.confirm(
+            f"rebuild conversations for {len(targets)} session(s)? manual exclusions are lost",
+            abort=True,
+        )
+    deleted = 0
+    for target in targets:
+        async with DatabasePipe() as pipe:
+            deleted += await pipe.artifacts.delete_for_pipeline(target, "conversation")
+            await pipe.jobs.delete_for_session(target, "conversation")
+    click.echo(f"deleted {deleted} conversation artifact(s); the worker will regroup")
+
+
 # ------------------------------------------------------------------------ speakers
 
 
