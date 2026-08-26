@@ -61,6 +61,9 @@ async def test_curation_survives_rediarize(
     )
     assert result.returncode == 0, result.stderr
     assert "carrying 2 label(s) and 1 edit(s)" in result.stdout
+    async with DatabasePipe() as pipe:
+        # Stale boundaries must not outlive their turns.
+        assert await pipe.artifacts.list_for_session(session.id, kind="conversation") == []
 
     await wait_for_job(session.id, "diarize", JobStatus.SUCCEEDED)
     await wait_for_job(session.id, "speaker-cluster", JobStatus.SUCCEEDED)

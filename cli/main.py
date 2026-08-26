@@ -426,9 +426,10 @@ async def sessions_rediarize(
     """Redo a session's diarization (and its transcripts) with the current
     diarizer.
 
-    Deletes the diarize and transcribe tiers' artifacts and job history in
-    one transaction; the worker's discovery re-runs diarization from the
-    surviving speech-map, then re-transcribes the new utterances. Pins are
+    Deletes the diarize, transcribe and conversation tiers' artifacts and
+    job history in one transaction; the worker's discovery re-runs
+    diarization from the surviving speech-map, then re-transcribes and
+    regroups the new utterances. Pins are
     keyed on (session, label, model), so they survive only while the block
     layout does — under new block parameters use --carry-labels, which maps
     each old label onto the new label covering the same speech.
@@ -467,7 +468,7 @@ async def sessions_rediarize(
                 snap = await label_carry_service.snapshot(pipe, target)
                 totals["labels"] += len(snap.metadata["labels"])
                 totals["edits"] += len(snap.metadata["edits"])
-            for pipeline in ("diarize", "transcribe", "transcribe-ab"):
+            for pipeline in ("diarize", "transcribe", "transcribe-ab", "conversation"):
                 totals[pipeline] = totals.get(pipeline, 0) + await pipe.artifacts.delete_for_pipeline(
                     target, pipeline
                 )

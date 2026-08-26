@@ -704,6 +704,9 @@ class DiarizePipeline(Pipeline):
             # this tier owns removing them. Transcribe jobs whose utterance
             # vanished skip themselves (artifact_id goes NULL).
             await pipe.artifacts.delete_for_pipeline(job.session_id, "transcribe")
+            # Conversations group utterances by id; the new map re-triggers
+            # the tier, and stale boundaries must not outlive their turns.
+            await pipe.artifacts.delete_for_pipeline(job.session_id, "conversation")
             await pipe.artifacts.create_many(turns)
             # Hosts first (never interjections themselves), so the
             # interjections can link to their ids in the same transaction.
