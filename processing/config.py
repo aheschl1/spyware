@@ -39,7 +39,7 @@ class ProcessingSettings(BaseSettings):
     vad_backend: str = "silero"  # or "energy": deterministic RMS threshold
     # Deliberately low: spans are a coarse, high-recall activity gate that
     # feeds the diarize tier's block assembly — no longer the ASR gate. On a
-    # glasses mic silero scores far (non-wearer) speakers low, so precision
+    # glasses mic silero scores far (non-user) speakers low, so precision
     # here would silence one side of every conversation.
     vad_threshold: float = 0.15
     vad_min_speech_ms: int = 250
@@ -67,7 +67,9 @@ class ProcessingSettings(BaseSettings):
     # context — see docs/processing-pipelines.md.
     diarizer_base_url: str = "http://127.0.0.1:8034/v1"
     diarizer_timeout_seconds: float = 900.0  # a 30-min block is minutes of GPU
-    diarize_block_merge_gap_ms: int = 30_000
+    # 60 s: also the conversation tier's pause tolerance, since a
+    # conversation never spans a block (see conversation_gap_ms).
+    diarize_block_merge_gap_ms: int = 60_000
     diarize_max_block_ms: int = 1_800_000
     diarize_min_turn_ms: int = 300
     # Utterances: same-speaker turns merged into the ASR units the transcribe
@@ -141,6 +143,24 @@ class ProcessingSettings(BaseSettings):
     # Row guard: create_many binds 9 params/row against Postgres' 65535 ceiling
     # and does not chunk.
     sound_span_max_spans: int = 2_000
+
+    # Conversation tier: utterances grouped into conversations by the silence
+    # between one utterance's end and the next's start, then split where the
+    # participants change. A conversation never spans a diarization block, so
+    # its labels stay consistent and the effective pause tolerance is
+    # min(conversation_gap_ms, diarize_block_merge_gap_ms). A lone utterance
+    # never forms a conversation.
+    conversation_gap_ms: int = 60_000
+    conversation_min_turns: int = 2
+    # Speaker-shift split: compare the non-user speaker sets of the trailing
+    # and leading `churn_window` turns; split where they are disjoint and each
+    # side holds at least `churn_min_turns` non-user turns (one interjection
+    # is not a new conversation). The user is every label in the block that
+    # resolves to the speaker cluster named `conversation_user_name`; with no
+    # such label (unset, or not yet clustered) the block's dominant label.
+    conversation_churn_window: int = 4
+    conversation_churn_min_turns: int = 2
+    conversation_user_name: str | None = None
 
     # Speaker clustering tier: batch agglomerative clustering (average
     # linkage, cosine) over per-(block, speaker) embeddings; merging stops at

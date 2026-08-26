@@ -17,6 +17,7 @@ from itertools import chain
 
 from api.schema.timeline import (
     AudioTagEvent,
+    ConversationEvent,
     LocationPointEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -44,10 +45,11 @@ _TYPE_RANK = {
     "session-start": 0,
     "speech-end": 1,
     "speech-start": 2,
-    "transcript": 3,
-    "audio-tag": 4,
-    "sound-span": 5,
-    "location-point": 6,
+    "conversation": 3,
+    "transcript": 4,
+    "audio-tag": 5,
+    "sound-span": 6,
+    "location-point": 7,
     "session-end": 100,
 }
 _DEFAULT_RANK = 50
@@ -122,6 +124,25 @@ def _sound_span_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
         mean=artifact.metadata.get("mean"),
         windows=artifact.metadata.get("windows"),
         model=artifact.metadata.get("model"),
+    )
+
+
+@expander("conversation", "conversation")
+def _conversation_events(artifact: PipelineArtifact) -> Iterator[TimelineEvent]:
+    if artifact.start_ms is None or artifact.end_ms is None:
+        return
+    meta = artifact.metadata
+    yield ConversationEvent(
+        at_ms=artifact.start_ms,
+        artifact_id=artifact.id,
+        start_ms=artifact.start_ms,
+        end_ms=artifact.end_ms,
+        turns=int(meta.get("turns", 0)),
+        speaker_count=int(meta.get("speaker_count", 0)),
+        alternations=int(meta.get("alternations", 0)),
+        opening=str(meta.get("opening", "gap")),
+        closure=str(meta.get("closure", "gap")),
+        utterance_ids=tuple(u for raw in meta.get("utterances", ()) if (u := parse_uuid(raw))),
     )
 
 

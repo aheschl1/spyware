@@ -63,6 +63,8 @@ from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.clustering import cluster_corpus
 from processing.config import get_settings
+from processing.pipelines.speaker_cluster import lock_user_clustering
+from services import label_carry
 from processing.diarizer import Diarizer, Turn
 from resources import Resource
 from services import stitch, timeline
@@ -691,12 +693,20 @@ class DiarizePipeline(Pipeline):
         if skipped:
             map_metadata["skipped"] = skipped
         async with DatabasePipe() as pipe:
+            session = await pipe.sessions.get(job.session_id)
+            if session is not None:
+                # The delete cascades into speaker_embeddings, which a
+                # concurrent cluster rebuild updates wholesale.
+                await lock_user_clustering(pipe, session.user_id)
             await pipe.artifacts.delete_for_pipeline(job.session_id, self.name)
             # Transcripts derive from utterances this delete just invalidated;
             # leaving them would show stale generations on the timeline, so
             # this tier owns removing them. Transcribe jobs whose utterance
             # vanished skip themselves (artifact_id goes NULL).
             await pipe.artifacts.delete_for_pipeline(job.session_id, "transcribe")
+            # Conversations group utterances by id; the new map re-triggers
+            # the tier, and stale boundaries must not outlive their turns.
+            await pipe.artifacts.delete_for_pipeline(job.session_id, "conversation")
             await pipe.artifacts.create_many(turns)
             # Hosts first (never interjections themselves), so the
             # interjections can link to their ids in the same transaction.
@@ -728,6 +738,11 @@ class DiarizePipeline(Pipeline):
                     for artifact, (_, vector) in zip(created, embeddings, strict=True)
                 ]
             )
+            snapshot = await label_carry.pending(pipe, job.session_id)
+            if snapshot is not None:
+                map_metadata["carried"] = await label_carry.apply_labels(
+                    pipe, snapshot, job.session_id, utterances
+                )
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,

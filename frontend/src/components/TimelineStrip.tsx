@@ -6,7 +6,12 @@ import {
   useState,
   type RefObject,
 } from "react"
-import type { AudioTagEvent, TimelineEvent, TranscriptEvent } from "../api/client"
+import type {
+  AudioTagEvent,
+  ConversationEvent,
+  TimelineEvent,
+  TranscriptEvent,
+} from "../api/client"
 import { fmtClock } from "../format"
 import { usePlayhead } from "../hooks/usePlayhead"
 import { describePoint, locationPoints } from "../location"
@@ -135,6 +140,10 @@ export default function TimelineStrip({
   const [showAllSounds, setShowAllSounds] = useState(false)
 
   const lanes = useMemo(() => buildLanes(events), [events])
+  const conversations = useMemo(
+    () => events.filter((e): e is ConversationEvent => e.type === "conversation"),
+    [events],
+  )
   const tagBlocks = useMemo(
     () =>
       events.filter(
@@ -239,6 +248,19 @@ export default function TimelineStrip({
 
     return (
       <>
+        <div className="strip-conversations" style={{ top: RULER_H }}>
+          {conversations.map((c) => (
+            <div
+              key={c.artifact_id}
+              className="strip-conversation"
+              title={`conversation · ${c.turns} turns · ${c.speaker_count} voices`}
+              style={{
+                left: `${(c.start_ms / durationMs) * 100}%`,
+                width: `${(Math.max(1, c.end_ms - c.start_ms) / durationMs) * 100}%`,
+              }}
+            />
+          ))}
+        </div>
         <div className="strip-ruler" style={{ height: RULER_H }}>
           {ticks.map((t) => (
             <span key={t} className="strip-tick" style={{ left: `${(t / durationMs) * 100}%` }}>

@@ -20,6 +20,7 @@ from api.ranges import RangeNotSatisfiable, etag_matches, parse_range
 from api.schema.artifacts import ArtifactRead
 from api.schema.auth import PlaybackTokenRead
 from api.schema.common import ErrorResponse, Page
+from api.schema.conversations import ConversationRead
 from api.schema.locations import LocationPointRead
 from api.schema.segments import SegmentRead, SessionResourceRead, segment_read
 from api.schema.sessions import (
@@ -209,6 +210,25 @@ async def list_session_artifacts(
         offset=paging.offset,
     )
     return Page.build(rows, paging, ArtifactRead.from_model)
+
+
+@router.get("/{session_id}/conversations", summary="A session's conversations")
+async def list_session_conversations(
+    session: OwnedSession, pipe: Pipe, paging: Paging, window: Range
+) -> Page[ConversationRead]:
+    """Runs of utterances the conversation tier grouped, in timeline order.
+    Fetch one by id for its transcript."""
+    rows = await pipe.artifacts.list_for_session(
+        session.id,
+        pipeline="conversation",
+        kind="conversation",
+        from_ms=window.from_ms,
+        to_ms=window.to_ms,
+        limit=paging.probe_limit,
+        offset=paging.offset,
+    )
+    labels = {label.speaker: label for label in await pipe.speakers.labels_for_session(session.id)}
+    return Page.build(rows, paging, lambda row: ConversationRead.from_artifact(row, labels))
 
 
 @router.get("/{session_id}/timeline", summary="A session's ordered event timeline")

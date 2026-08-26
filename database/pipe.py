@@ -22,8 +22,10 @@ from database.config import DatabaseSettings, get_settings
 from database.repos.ab_votes import AbVotesRepo
 from database.repos.artifacts import ArtifactsRepo
 from database.repos.cluster_params import ClusterParamsRepo
+from database.repos.conversations import ConversationsRepo
 from database.repos.embeddings import AudioEmbeddingsRepo, EmbeddingsRepo
 from database.repos.jobs import JobsRepo
+from database.repos.label_carry import LabelCarryRepo
 from database.repos.locations import LocationsRepo
 from database.repos.segments import SegmentsRepo
 from database.repos.sessions import SessionsRepo
@@ -162,6 +164,14 @@ class DatabasePipe:
     @cached_property
     def transcripts(self) -> TranscriptSearchRepo:
         return TranscriptSearchRepo(self.connection)
+
+    @cached_property
+    def conversations(self) -> ConversationsRepo:
+        return ConversationsRepo(self.connection)
+
+    @cached_property
+    def label_carry(self) -> LabelCarryRepo:
+        return LabelCarryRepo(self.connection)
 
     def _clear_repos(self) -> None:
         """Drop cached repositories so none outlives its connection."""

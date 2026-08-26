@@ -302,6 +302,34 @@ export default function Timeline({
           </div>
         )
       }
+      case "conversation": {
+        if (hidden.has("conversation")) return null
+        const voices = event.speaker_count
+        return (
+          <div
+            key={key}
+            ref={flash ? flashRef : undefined}
+            className={`event conversation ${flash ? "flash" : ""}`}
+          >
+            <button
+              className="event-time"
+              title="listen from here"
+              onClick={() => onSeek(event.at_ms)}
+            >
+              {fmtClock(event.at_ms)}
+            </button>
+            <div className="event-body conversation-head">
+              <span className="conversation-label">Conversation</span>
+              <span className="row-dim">
+                {event.turns} turn{event.turns === 1 ? "" : "s"} · {voices} voice
+                {voices === 1 ? "" : "s"}
+                {event.alternations === 0 && voices <= 1 ? " · one-sided" : ""} ·{" "}
+                {fmtClock(event.end_ms - event.start_ms)}
+              </span>
+            </div>
+          </div>
+        )
+      }
       case "sound-span": {
         if (hidden.has("sound-span")) return null
         return (

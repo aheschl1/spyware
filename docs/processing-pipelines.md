@@ -156,7 +156,7 @@ each tier discovers its own input):
 2. **`diarize`** (`processing/pipelines/diarize.py`) — consumes each
    session's `speech-map` (one job per session), but the diarizer never sees
    a whole session: spans re-merge into *blocks* (contiguous speech, gap ≤
-   30 s joins, ≤ 30 min, closed at span boundaries) because label consistency
+   60 s joins, ≤ 30 min, closed at span boundaries) because label consistency
    needs long context. Emits `speaker-turn` artifacts with
    **block-namespaced** labels (`b{start}:SPEAKER_00` — local identity only;
    global identity is the clustering tier's job), **`utterance`** artifacts —
@@ -392,6 +392,64 @@ transcript search (sentence embeddings + a `transcript-embed` tier) is
 deliberately deferred pending a chunk-overlap design; it would arrive as a
 non-breaking `mode=` parameter.
 
+## The conversation tier
+
+`conversation` (`processing/pipelines/conversation.py`) runs downstream of
+`diarize` — it discovers `diarize-map` artifacts, the same anti-join shape
+as `sound-span` — and groups the session's `utterance` artifacts into
+conversations in three pure stages:
+
+1. **Gap grouping.** A run stays open while each next utterance starts
+   within `PROCESSING_CONVERSATION_GAP_MS` (60 s) of the furthest end so
+   far. A run also closes at every diarization block seam: labels are
+   block-local, so a conversation that spanned one could not be reasoned
+   about. Silence past the gap is stamped `closure: gap`; a seam inside the
+   tolerance (only the 30-min block cap can produce one now that both gaps
+   are 60 s) is stamped `block`. The effective pause tolerance is therefore
+   `min(conversation gap, diarize block gap)` — raise both together.
+2. **Speaker-shift split.** Within each run, the user — present in every
+   conversation, so never a participant signal — is set aside: every label
+   in the block that resolves to the cluster named
+   `PROCESSING_CONVERSATION_USER_NAME`, or, when none does (unset, or not
+   yet clustered), the block's dominant label. The artifact records
+   `user_labels` and `user_source` (`identity`/`dominant`). Then and the remaining speaker sets of the trailing and leading
+   `PROCESSING_CONVERSATION_CHURN_WINDOW` (4) turns are compared. Where they
+   are disjoint and each side holds `PROCESSING_CONVERSATION_CHURN_MIN_TURNS`
+   (2) non-user turns, the run splits with `closure: speaker_change`. A
+   single interjection never reaches the floor; a user talking alone (a
+   phone call) never splits. This is what catches a hop from one person to
+   another with little or no silence — the one shape silence cannot see.
+   The tier runs on `diarize-map`, before that session's new labels are
+   clustered, so a fresh session usually gets the dominant-label fallback;
+   `conversations rebuild --all` regroups from identity once clustering has
+   settled (no GPU work).
+3. **Floor.** Runs shorter than `PROCESSING_CONVERSATION_MIN_TURNS` (2) are
+   dropped, after the splits, so a short remainder is discarded rather than
+   kept. Transcripts are never consulted, so the tier needs no transcribe
+   completion marker.
+
+Each `conversation` artifact spans first-member-start to last-member-end and
+carries its ordered member `utterances`, `turns`, the block-local `speakers`
+heard, `alternations` (speaker changes between consecutive members), and
+`opening`/`closure` with the neighbouring gap sizes, so a later adjudicator
+can revisit proposed boundaries without changing the shape. Single-speaker
+runs (phone calls, talking at the TV) are published and tagged, not dropped:
+consumers filter on `alternations`. A `conversation-map` marker closes the
+set; the whole output is replaced per run, and diarize republication mints a
+new map that re-triggers it.
+
+Membership is curated in place: `POST /v1/conversations/{id}/exclude`
+moves an utterance (background noise, a bystander) into the artifact's
+`excluded` list and recomputes the bounds and counts from what remains —
+it never re-groups or splits — and `include` reverses it. Like transcript
+edits, these live in the artifact and are lost when the session is
+rediarized. Build-time exclusion sources (an audio-tag overlap filter, say)
+plug into `apply_exclusions` before grouping, where a removal *can* open a
+gap and split a run. `GET /v1/sessions/{id}/conversations` lists a
+session's conversations; `GET /v1/conversations/{id}` adds the ordered
+transcript with speakers resolved at read through the same label → cluster
+→ name chain the timeline uses.
+
 ## Callbacks and chaining
 
 `Pipeline.__init__` takes an optional callback; `maybe_callback(job, result)`
@@ -413,6 +471,15 @@ succeed transaction instead - nothing in the schema prevents that.
 - SIGTERM/SIGINT: children finish the in-flight job, the supervisor waits
   `PROCESSING_SHUTDOWN_GRACE_SECONDS`, then kills stragglers. A SIGKILLed
   child leaves a `running` row; the next boot requeues it.
+- Re-running a tier: `sessions retranscribe ID`, `sessions rediarize ID`
+  (or `--all`). A re-diarize under new block parameters renames every
+  label (`b{block_start}:…`), which would orphan pins and lose cluster
+  names; `--carry-labels` snapshots each label's identity and spans, plus
+  edited transcripts, into a `label-carry/label-snapshot` artifact that the
+  deletes leave alone. Diarize re-keys pins and assignments onto the new
+  label covering the same speech inside its publish transaction (counts in
+  the map's `carried`); transcribe re-applies an edit to the new utterance
+  covering at least half of it, `edited: true` and no word timings.
 - Priority: plain integer, higher first, default 0. Nothing assigns
   priorities yet; chained jobs inherit their parent's. Constant load at a
   high priority will starve lower ones - there is no aging.

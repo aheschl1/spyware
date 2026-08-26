@@ -436,3 +436,32 @@ def test_empty_location_payload_yields_nothing() -> None:
     )
     events = assemble(session, [], segments=[segment])
     assert [event.type for event in events] == ["session-start"]
+
+
+def test_conversation_opens_before_its_first_transcript() -> None:
+    members = [uuid4(), uuid4()]
+    conversation = _artifact(
+        "conversation",
+        "conversation",
+        1_000,
+        9_000,
+        {
+            "utterances": [str(u) for u in members],
+            "turns": 2,
+            "speaker_count": 2,
+            "alternations": 1,
+            "opening": "session_start",
+            "closure": "gap",
+        },
+    )
+    events = assemble(_session(), [_transcript(1_000, 4_000), conversation])
+    assert [e.type for e in events] == ["session-start", "conversation", "transcript"]
+    event = events[1]
+    assert (event.start_ms, event.end_ms, event.turns, event.speaker_count) == (1_000, 9_000, 2, 2)
+    assert event.closure == "gap" and event.opening == "session_start"
+    assert list(event.utterance_ids) == members
+
+
+def test_conversation_without_a_span_is_skipped() -> None:
+    events = assemble(_session(), [_artifact("conversation", "conversation-map")])
+    assert [e.type for e in events] == ["session-start"]

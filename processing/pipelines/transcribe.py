@@ -25,9 +25,10 @@ from database.schema.artifacts import ArtifactCreate
 from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.config import get_settings
+from processing.label_carry import carried_text, edit_records
 from processing.transcriber import Transcriber
 from resources import Resource
-from services import stitch, timeline
+from services import label_carry, stitch, timeline
 
 _SOURCE_PIPELINE = "diarize"
 # Timelines to keep between jobs. Discovery interleaves sessions, so one slot
@@ -162,6 +163,14 @@ class TranscribePipeline(Pipeline):
                 job.artifact_id
             ):
                 return {"skipped": "transcript already exists"}
+            snapshot = await label_carry.pending(pipe, job.session_id)
+            if snapshot is not None:
+                edited = carried_text(edit_records(snapshot.metadata), start_ms, end_ms)
+                if edited is not None:
+                    # Same shape as an edit made through the API; the model's
+                    # word timings no longer describe the text.
+                    metadata.pop("words", None)
+                    metadata.update({"text": edited, "chars": len(edited), "edited": True})
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,
