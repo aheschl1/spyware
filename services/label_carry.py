@@ -27,6 +27,11 @@ async def snapshot(pipe: DatabasePipe, session_id: UUID) -> PipelineArtifact:
     any earlier snapshot for the session."""
     labels = await pipe.label_carry.identities_for_session(session_id)
     edits = await pipe.label_carry.edited_transcripts(session_id)
+    previous = await pending(pipe, session_id)
+    if previous is not None and previous.metadata.get("applied") is None and not labels:
+        # Nothing to snapshot because the tier output is already gone: the
+        # earlier snapshot is the curation, so keep it.
+        return previous
     await pipe.artifacts.delete_for_pipeline(session_id, PIPELINE)
     return await pipe.artifacts.create(
         ArtifactCreate(

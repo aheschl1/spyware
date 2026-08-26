@@ -91,3 +91,19 @@ async def test_rediarize_all_requires_a_target_or_the_flag() -> None:
     )
     assert result.returncode != 0
     assert "SESSION_ID or --all" in result.stderr
+
+
+async def test_snapshot_never_overwrites_curation_with_nothing(
+    worker: None, client: httpx.AsyncClient, account: Account
+) -> None:
+    """A second rediarize before the worker republishes finds no voice-prints;
+    the earlier snapshot must survive it."""
+    from services import label_carry
+
+    session = await _diarized_session(account)
+    async with DatabasePipe() as pipe:
+        first = await label_carry.snapshot(pipe, session.id)
+        assert first.metadata["labels"]
+        await pipe.artifacts.delete_for_pipeline(session.id, "diarize")
+        second = await label_carry.snapshot(pipe, session.id)
+    assert second.id == first.id

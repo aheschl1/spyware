@@ -22,6 +22,7 @@ from database import DatabaseError, DatabasePipe, close_pool, get_settings
 from database.exceptions import NotFoundError
 from database.schema.sessions import SessionCreate
 from database.schema.users import UserCreate
+from processing.pipelines.speaker_cluster import lock_user_clustering
 from services import label_carry as label_carry_service
 from services import segments as segment_service
 from storage import BlobNotFoundError, BlobPipe, close_blob_client
@@ -455,7 +456,13 @@ async def sessions_rediarize(
         )
     totals = {"diarize": 0, "transcribe": 0, "labels": 0, "edits": 0}
     for target in targets:
+        # The delete cascades into speaker_embeddings, which a concurrent
+        # cluster rebuild updates wholesale — take its per-user lock first.
         async with DatabasePipe() as pipe:
+            session = await pipe.sessions.get(target)
+            if session is None:
+                continue
+            await lock_user_clustering(pipe, session.user_id)
             if carry_labels:
                 snap = await label_carry_service.snapshot(pipe, target)
                 totals["labels"] += len(snap.metadata["labels"])
