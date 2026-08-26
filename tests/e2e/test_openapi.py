@@ -25,6 +25,10 @@ EXPECTED_METHODS = {
     "/v1/sessions/{session_id}/speakers": {"get"},
     "/v1/sessions/{session_id}/timeline": {"get"},
     "/v1/sessions/{session_id}/transcripts/{artifact_id}": {"post"},
+    "/v1/sessions/{session_id}/conversations": {"get"},
+    "/v1/conversations/{conversation_id}": {"get"},
+    "/v1/conversations/{conversation_id}/exclude": {"post"},
+    "/v1/conversations/{conversation_id}/include": {"post"},
     "/v1/sessions/{session_id}/ab": {"get", "post"},
     "/v1/sessions/{session_id}/ab/votes": {"post"},
     "/v1/ab/results": {"get"},
@@ -95,6 +99,7 @@ async def test_timeline_event_union_is_discriminated(client: httpx.AsyncClient) 
         "transcript",
         "audio-tag",
         "sound-span",
+        "conversation",
         "location-point",
     }
     assert "label" in schemas["SoundSpanEvent"]["properties"]

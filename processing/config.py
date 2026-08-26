@@ -142,6 +142,12 @@ class ProcessingSettings(BaseSettings):
     # and does not chunk.
     sound_span_max_spans: int = 2_000
 
+    # Conversation tier: utterances grouped into conversations by the silence
+    # between one utterance's end and the next's start. A lone utterance never
+    # forms a conversation.
+    conversation_gap_ms: int = 60_000
+    conversation_min_turns: int = 2
+
     # Speaker clustering tier: batch agglomerative clustering (average
     # linkage, cosine) over per-(block, speaker) embeddings; merging stops at
     # this distance. Embeddings from under min_talk_ms of speech are skipped

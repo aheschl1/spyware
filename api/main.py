@@ -23,6 +23,7 @@ from api.config import get_settings
 from api.routes import (
     ab,
     auth,
+    conversations,
     health,
     resources,
     search,
@@ -181,6 +182,7 @@ def create_app() -> FastAPI:
     app.include_router(search.router, prefix=API_PREFIX)
     app.include_router(stream.router, prefix=API_PREFIX)
     app.include_router(ab.router, prefix=API_PREFIX)
+    app.include_router(conversations.router, prefix=API_PREFIX)
     return app
 
 

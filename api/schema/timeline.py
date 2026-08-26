@@ -162,6 +162,21 @@ class SoundSpanEvent(ArtifactEventBase):
     model: str | None = Field(None, description="The tagging model behind the scores.")
 
 
+class ConversationEvent(ArtifactEventBase):
+    """A run of utterances grouped as one conversation over ``[start_ms,
+    end_ms)``; positioned at the start, before its first transcript."""
+
+    type: Literal["conversation"] = "conversation"
+    start_ms: int = Field(description="Start of the first member utterance, ms.")
+    end_ms: int = Field(description="End (exclusive) of the last member utterance, ms.")
+    turns: int = Field(description="Member utterances.")
+    speaker_count: int = Field(description="Distinct diarizer labels among members.")
+    alternations: int = Field(description="Same-block speaker changes between members.")
+    opening: str = Field(description="``gap`` or ``session_start``.")
+    closure: str = Field(description="``gap`` or ``session_end``.")
+    utterance_ids: tuple[UUID, ...] = Field(description="Members, in timeline order.")
+
+
 class LocationPointEvent(SegmentEventBase):
     """One GPS fix.
 
@@ -186,6 +201,7 @@ type TimelineEvent = Annotated[
     | TranscriptEvent
     | AudioTagEvent
     | SoundSpanEvent
+    | ConversationEvent
     | LocationPointEvent,
     Field(discriminator="type"),
 ]

@@ -347,6 +347,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}/conversations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A session's conversations
+         * @description Runs of utterances the conversation tier grouped, in timeline order.
+         *     Fetch one by id for its transcript.
+         */
+        get: operations["list_session_conversations_v1_sessions__session_id__conversations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/timeline": {
         parameters: {
             query?: never;
@@ -1023,6 +1044,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One conversation with its transcript */
+        get: operations["get_conversation_v1_conversations__conversation_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/exclude": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drop an utterance from a conversation
+         * @description Bounds and counts are recomputed from the remaining members; the
+         *     conversation is never split. The exclusion is reversible via ``include``.
+         */
+        post: operations["exclude_utterance_v1_conversations__conversation_id__exclude_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/conversations/{conversation_id}/include": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore an excluded utterance */
+        post: operations["include_utterance_v1_conversations__conversation_id__include_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1411,12 +1487,264 @@ export interface components {
             min_talk_ms: number;
         };
         /**
+         * ConversationDetail
+         * @description A conversation with its transcript in order.
+         */
+        ConversationDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /**
+             * Turns
+             * @description Member utterances.
+             */
+            turns: number;
+            /**
+             * Alternations
+             * @description Same-block speaker changes between consecutive members — 0 means nobody demonstrably replied.
+             */
+            alternations: number;
+            /** Speakers */
+            speakers: components["schemas"]["ConversationSpeaker"][];
+            /**
+             * Opening
+             * @description Why it started here: ``gap`` or ``session_start``.
+             */
+            opening: string;
+            /**
+             * Closure
+             * @description Why it ended here: ``gap`` or ``session_end``.
+             */
+            closure: string;
+            /** Gap Before Ms */
+            gap_before_ms?: number | null;
+            /** Gap After Ms */
+            gap_after_ms?: number | null;
+            /**
+             * Utterance Ids
+             * @description Members, in timeline order.
+             */
+            utterance_ids: string[];
+            /** Excluded */
+            excluded: components["schemas"]["ExcludedUtterance"][];
+            /** Transcripts */
+            transcripts: components["schemas"]["ConversationTranscriptRead"][];
+        };
+        /**
+         * ConversationEvent
+         * @description A run of utterances grouped as one conversation over ``[start_ms,
+         *     end_ms)``; positioned at the start, before its first transcript.
+         */
+        ConversationEvent: {
+            /**
+             * At Ms
+             * @description Position of this event on the session timeline, ms.
+             */
+            at_ms: number;
+            /**
+             * Artifact Id
+             * Format: uuid
+             * @description The pipeline artifact this event derives from.
+             */
+            artifact_id: string;
+            /**
+             * Voiceprint Id
+             * @description The voice-print (embedding artifact) behind this event's speaker, when one resolved — the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice.
+             */
+            voiceprint_id?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "conversation";
+            /**
+             * Start Ms
+             * @description Start of the first member utterance, ms.
+             */
+            start_ms: number;
+            /**
+             * End Ms
+             * @description End (exclusive) of the last member utterance, ms.
+             */
+            end_ms: number;
+            /**
+             * Turns
+             * @description Member utterances.
+             */
+            turns: number;
+            /**
+             * Speaker Count
+             * @description Distinct diarizer labels among members.
+             */
+            speaker_count: number;
+            /**
+             * Alternations
+             * @description Same-block speaker changes between members.
+             */
+            alternations: number;
+            /**
+             * Opening
+             * @description ``gap`` or ``session_start``.
+             */
+            opening: string;
+            /**
+             * Closure
+             * @description ``gap`` or ``session_end``.
+             */
+            closure: string;
+            /**
+             * Utterance Ids
+             * @description Members, in timeline order.
+             */
+            utterance_ids: string[];
+        };
+        /**
+         * ConversationMemberRequest
+         * @description Body for exclude/include: which utterance, and (for exclude) why.
+         */
+        ConversationMemberRequest: {
+            /**
+             * Utterance Id
+             * Format: uuid
+             */
+            utterance_id: string;
+            /** Reason */
+            reason?: string | null;
+        };
+        /**
+         * ConversationRead
+         * @description A run of utterances the tier judged to be one conversation.
+         */
+        ConversationRead: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /**
+             * Turns
+             * @description Member utterances.
+             */
+            turns: number;
+            /**
+             * Alternations
+             * @description Same-block speaker changes between consecutive members — 0 means nobody demonstrably replied.
+             */
+            alternations: number;
+            /** Speakers */
+            speakers: components["schemas"]["ConversationSpeaker"][];
+            /**
+             * Opening
+             * @description Why it started here: ``gap`` or ``session_start``.
+             */
+            opening: string;
+            /**
+             * Closure
+             * @description Why it ended here: ``gap`` or ``session_end``.
+             */
+            closure: string;
+            /** Gap Before Ms */
+            gap_before_ms?: number | null;
+            /** Gap After Ms */
+            gap_after_ms?: number | null;
+            /**
+             * Utterance Ids
+             * @description Members, in timeline order.
+             */
+            utterance_ids: string[];
+            /** Excluded */
+            excluded: components["schemas"]["ExcludedUtterance"][];
+        };
+        /**
+         * ConversationSpeaker
+         * @description One voice heard in the conversation, with its cluster resolution.
+         */
+        ConversationSpeaker: {
+            /**
+             * Label
+             * @description Block-local diarizer label (provenance).
+             */
+            label: string;
+            /**
+             * Speaker Id
+             * @description Global cluster; null if unclustered.
+             */
+            speaker_id?: string | null;
+            /**
+             * Name
+             * @description The cluster's user-given label.
+             */
+            name?: string | null;
+        };
+        /** ConversationTranscriptRead */
+        ConversationTranscriptRead: {
+            /**
+             * Artifact Id
+             * Format: uuid
+             */
+            artifact_id: string;
+            /**
+             * Utterance Id
+             * Format: uuid
+             */
+            utterance_id: string;
+            /** Start Ms */
+            start_ms: number;
+            /** End Ms */
+            end_ms: number;
+            /** Speaker */
+            speaker?: string | null;
+            /** Speaker Id */
+            speaker_id?: string | null;
+            /** Speaker Name */
+            speaker_name?: string | null;
+            /** Text */
+            text: string;
+            /** Interjection Of */
+            interjection_of?: string | null;
+        };
+        /**
          * ErrorResponse
          * @description The body of every non-2xx response.
          */
         ErrorResponse: {
             /** Detail */
             detail: string;
+        };
+        /** ExcludedUtterance */
+        ExcludedUtterance: {
+            /**
+             * Utterance Id
+             * Format: uuid
+             */
+            utterance_id: string;
+            /** Reason */
+            reason?: string | null;
+            /**
+             * Source
+             * @description Who excluded it: ``manual`` or a filter name.
+             */
+            source: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1590,6 +1918,20 @@ export interface components {
         Page_ArtifactRead_: {
             /** Items */
             items: components["schemas"]["ArtifactRead"][];
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /**
+             * Has More
+             * @description True when more rows exist past this slice.
+             */
+            has_more: boolean;
+        };
+        /** Page[ConversationRead] */
+        Page_ConversationRead_: {
+            /** Items */
+            items: components["schemas"]["ConversationRead"][];
             /** Limit */
             limit: number;
             /** Offset */
@@ -2602,7 +2944,7 @@ export interface components {
             /** Items */
             items: components["schemas"]["TagSearchRead"][];
         };
-        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"] | components["schemas"]["SoundSpanEvent"] | components["schemas"]["LocationPointEvent"];
+        TimelineEvent: components["schemas"]["SessionStartEvent"] | components["schemas"]["SessionEndEvent"] | components["schemas"]["SpeechEndEvent"] | components["schemas"]["SpeechStartEvent"] | components["schemas"]["TranscriptEvent"] | components["schemas"]["AudioTagEvent"] | components["schemas"]["SoundSpanEvent"] | components["schemas"]["ConversationEvent"] | components["schemas"]["LocationPointEvent"];
         /**
          * TokenIssued
          * @description The plaintext exists exactly once, here; the server stores only a hash.
@@ -3611,6 +3953,61 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Page_ArtifactRead_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_session_conversations_v1_sessions__session_id__conversations_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                from_ms?: number | null;
+                to_ms?: number | null;
+            };
+            header?: never;
+            path: {
+                /** @description A recording session belonging to you. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_ConversationRead_"];
                 };
             };
             /** @description Unauthorized */
@@ -5275,6 +5672,168 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AbVoteResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_conversation_v1_conversations__conversation_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    exclude_utterance_v1_conversations__conversation_id__exclude_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationRead"];
+                };
+            };
+            /** @description Too few members remained; the conversation is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    include_utterance_v1_conversations__conversation_id__include_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConversationMemberRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationRead"];
                 };
             };
             /** @description Unauthorized */

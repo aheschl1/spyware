@@ -1292,6 +1292,134 @@
         }
       }
     },
+    "/v1/sessions/{session_id}/conversations": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "A session's conversations",
+        "description": "Runs of utterances the conversation tier grouped, in timeline order.\nFetch one by id for its transcript.",
+        "operationId": "list_session_conversations_v1_sessions__session_id__conversations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "A recording session belonging to you.",
+              "title": "Session Id"
+            },
+            "description": "A recording session belonging to you."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "from_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ms"
+            }
+          },
+          {
+            "name": "to_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ms"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ConversationRead_"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/sessions/{session_id}/timeline": {
       "get": {
         "tags": [
@@ -3997,6 +4125,234 @@
           }
         }
       }
+    },
+    "/v1/conversations/{conversation_id}": {
+      "get": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "One conversation with its transcript",
+        "operationId": "get_conversation_v1_conversations__conversation_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/{conversation_id}/exclude": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Drop an utterance from a conversation",
+        "description": "Bounds and counts are recomputed from the remaining members; the\nconversation is never split. The exclusion is reversible via ``include``.",
+        "operationId": "exclude_utterance_v1_conversations__conversation_id__exclude_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "204": {
+            "description": "Too few members remained; the conversation is gone."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/conversations/{conversation_id}/include": {
+      "post": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Restore an excluded utterance",
+        "operationId": "include_utterance_v1_conversations__conversation_id__include_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationMemberRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationRead"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4772,6 +5128,461 @@
         "title": "ClusterParamsValues",
         "description": "A complete, resolved set of clustering knobs."
       },
+      "ConversationDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns",
+            "description": "Member utterances."
+          },
+          "alternations": {
+            "type": "integer",
+            "title": "Alternations",
+            "description": "Same-block speaker changes between consecutive members \u2014 0 means nobody demonstrably replied."
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationSpeaker"
+            },
+            "type": "array",
+            "title": "Speakers"
+          },
+          "opening": {
+            "type": "string",
+            "title": "Opening",
+            "description": "Why it started here: ``gap`` or ``session_start``."
+          },
+          "closure": {
+            "type": "string",
+            "title": "Closure",
+            "description": "Why it ended here: ``gap`` or ``session_end``."
+          },
+          "gap_before_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Before Ms"
+          },
+          "gap_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap After Ms"
+          },
+          "utterance_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Utterance Ids",
+            "description": "Members, in timeline order."
+          },
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedUtterance"
+            },
+            "type": "array",
+            "title": "Excluded"
+          },
+          "transcripts": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationTranscriptRead"
+            },
+            "type": "array",
+            "title": "Transcripts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "turns",
+          "alternations",
+          "speakers",
+          "opening",
+          "closure",
+          "utterance_ids",
+          "excluded",
+          "transcripts"
+        ],
+        "title": "ConversationDetail",
+        "description": "A conversation with its transcript in order."
+      },
+      "ConversationEvent": {
+        "properties": {
+          "at_ms": {
+            "type": "integer",
+            "title": "At Ms",
+            "description": "Position of this event on the session timeline, ms."
+          },
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id",
+            "description": "The pipeline artifact this event derives from."
+          },
+          "voiceprint_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Voiceprint Id",
+            "description": "The voice-print (embedding artifact) behind this event's speaker, when one resolved \u2014 the member id for the speaker reassign/unpin routes; null when the event carries no clustered voice."
+          },
+          "type": {
+            "type": "string",
+            "const": "conversation",
+            "title": "Type",
+            "default": "conversation"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms",
+            "description": "Start of the first member utterance, ms."
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms",
+            "description": "End (exclusive) of the last member utterance, ms."
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns",
+            "description": "Member utterances."
+          },
+          "speaker_count": {
+            "type": "integer",
+            "title": "Speaker Count",
+            "description": "Distinct diarizer labels among members."
+          },
+          "alternations": {
+            "type": "integer",
+            "title": "Alternations",
+            "description": "Same-block speaker changes between members."
+          },
+          "opening": {
+            "type": "string",
+            "title": "Opening",
+            "description": "``gap`` or ``session_start``."
+          },
+          "closure": {
+            "type": "string",
+            "title": "Closure",
+            "description": "``gap`` or ``session_end``."
+          },
+          "utterance_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Utterance Ids",
+            "description": "Members, in timeline order."
+          }
+        },
+        "type": "object",
+        "required": [
+          "at_ms",
+          "artifact_id",
+          "start_ms",
+          "end_ms",
+          "turns",
+          "speaker_count",
+          "alternations",
+          "opening",
+          "closure",
+          "utterance_ids"
+        ],
+        "title": "ConversationEvent",
+        "description": "A run of utterances grouped as one conversation over ``[start_ms,\nend_ms)``; positioned at the start, before its first transcript."
+      },
+      "ConversationMemberRequest": {
+        "properties": {
+          "utterance_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Utterance Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "utterance_id"
+        ],
+        "title": "ConversationMemberRequest",
+        "description": "Body for exclude/include: which utterance, and (for exclude) why."
+      },
+      "ConversationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "turns": {
+            "type": "integer",
+            "title": "Turns",
+            "description": "Member utterances."
+          },
+          "alternations": {
+            "type": "integer",
+            "title": "Alternations",
+            "description": "Same-block speaker changes between consecutive members \u2014 0 means nobody demonstrably replied."
+          },
+          "speakers": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationSpeaker"
+            },
+            "type": "array",
+            "title": "Speakers"
+          },
+          "opening": {
+            "type": "string",
+            "title": "Opening",
+            "description": "Why it started here: ``gap`` or ``session_start``."
+          },
+          "closure": {
+            "type": "string",
+            "title": "Closure",
+            "description": "Why it ended here: ``gap`` or ``session_end``."
+          },
+          "gap_before_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Before Ms"
+          },
+          "gap_after_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap After Ms"
+          },
+          "utterance_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Utterance Ids",
+            "description": "Members, in timeline order."
+          },
+          "excluded": {
+            "items": {
+              "$ref": "#/components/schemas/ExcludedUtterance"
+            },
+            "type": "array",
+            "title": "Excluded"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "session_id",
+          "start_ms",
+          "end_ms",
+          "turns",
+          "alternations",
+          "speakers",
+          "opening",
+          "closure",
+          "utterance_ids",
+          "excluded"
+        ],
+        "title": "ConversationRead",
+        "description": "A run of utterances the tier judged to be one conversation."
+      },
+      "ConversationSpeaker": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Block-local diarizer label (provenance)."
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id",
+            "description": "Global cluster; null if unclustered."
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "The cluster's user-given label."
+          }
+        },
+        "type": "object",
+        "required": [
+          "label"
+        ],
+        "title": "ConversationSpeaker",
+        "description": "One voice heard in the conversation, with its cluster resolution."
+      },
+      "ConversationTranscriptRead": {
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Artifact Id"
+          },
+          "utterance_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Utterance Id"
+          },
+          "start_ms": {
+            "type": "integer",
+            "title": "Start Ms"
+          },
+          "end_ms": {
+            "type": "integer",
+            "title": "End Ms"
+          },
+          "speaker": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker"
+          },
+          "speaker_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Id"
+          },
+          "speaker_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speaker Name"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "interjection_of": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interjection Of"
+          }
+        },
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "utterance_id",
+          "start_ms",
+          "end_ms",
+          "text"
+        ],
+        "title": "ConversationTranscriptRead"
+      },
       "ErrorResponse": {
         "properties": {
           "detail": {
@@ -4785,6 +5596,37 @@
         ],
         "title": "ErrorResponse",
         "description": "The body of every non-2xx response."
+      },
+      "ExcludedUtterance": {
+        "properties": {
+          "utterance_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Utterance Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Who excluded it: ``manual`` or a filter name."
+          }
+        },
+        "type": "object",
+        "required": [
+          "utterance_id",
+          "source"
+        ],
+        "title": "ExcludedUtterance"
       },
       "HTTPValidationError": {
         "properties": {
@@ -5152,6 +5994,38 @@
           "has_more"
         ],
         "title": "Page[ArtifactRead]"
+      },
+      "Page_ConversationRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More",
+            "description": "True when more rows exist past this slice."
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "limit",
+          "offset",
+          "has_more"
+        ],
+        "title": "Page[ConversationRead]"
       },
       "Page_LocationPointRead_": {
         "properties": {
@@ -7005,6 +7879,9 @@
             "$ref": "#/components/schemas/SoundSpanEvent"
           },
           {
+            "$ref": "#/components/schemas/ConversationEvent"
+          },
+          {
             "$ref": "#/components/schemas/LocationPointEvent"
           }
         ],
@@ -7012,6 +7889,7 @@
           "propertyName": "type",
           "mapping": {
             "audio-tag": "#/components/schemas/AudioTagEvent",
+            "conversation": "#/components/schemas/ConversationEvent",
             "location-point": "#/components/schemas/LocationPointEvent",
             "session-end": "#/components/schemas/SessionEndEvent",
             "session-start": "#/components/schemas/SessionStartEvent",

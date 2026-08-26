@@ -392,6 +392,42 @@ transcript search (sentence embeddings + a `transcript-embed` tier) is
 deliberately deferred pending a chunk-overlap design; it would arrive as a
 non-breaking `mode=` parameter.
 
+## The conversation tier
+
+`conversation` (`processing/pipelines/conversation.py`) runs downstream of
+`diarize` — it discovers `diarize-map` artifacts, the same anti-join shape
+as `sound-span` — and groups the session's `utterance` artifacts into
+conversations: a run of utterances never separated by more than
+`PROCESSING_CONVERSATION_GAP_MS` of silence (60 s). A run shorter than
+`PROCESSING_CONVERSATION_MIN_TURNS` (2) is not a conversation; a lone
+remark leaves nothing behind. Transcripts are not consulted, so the tier
+needs no transcribe completion marker.
+
+Each `conversation` artifact spans first-member-start to last-member-end and
+carries its ordered member `utterances`, `turns`, the block-local `speakers`
+heard, and `alternations` — speaker changes between consecutive members
+*within one diarization block* (labels are block-local, so a change across
+blocks is not evidence of a second voice). `opening`/`closure` record why
+each boundary sits where it does (`gap`, `session_start`, `session_end`)
+with the neighbouring gap sizes, so a later adjudicator can revisit
+proposed boundaries without changing the shape. Single-speaker runs (phone
+calls, talking at the TV) are published and tagged, not dropped: they are
+the heuristic's known false positive, and consumers filter on
+`alternations`. A `conversation-map` marker closes the set; the whole
+output is replaced per run, and diarize republication mints a new map that
+re-triggers it.
+
+Membership is curated in place: `POST /v1/conversations/{id}/exclude`
+moves an utterance (background noise, a bystander) into the artifact's
+`excluded` list and recomputes the bounds and counts from what remains —
+it never re-groups or splits — and `include` reverses it. Like transcript
+edits, these live in the artifact and are lost when the session is
+rediarized. Build-time exclusion sources (an audio-tag overlap filter, say)
+plug into `apply_exclusions` before grouping, where a removal *can* open a
+gap and split a run. `GET /v1/sessions/{id}/conversations` lists a
+session's conversations; `GET /v1/conversations/{id}` adds the ordered
+transcript with speakers resolved.
+
 ## Callbacks and chaining
 
 `Pipeline.__init__` takes an optional callback; `maybe_callback(job, result)`
