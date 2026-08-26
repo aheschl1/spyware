@@ -464,6 +464,15 @@ succeed transaction instead - nothing in the schema prevents that.
 - SIGTERM/SIGINT: children finish the in-flight job, the supervisor waits
   `PROCESSING_SHUTDOWN_GRACE_SECONDS`, then kills stragglers. A SIGKILLed
   child leaves a `running` row; the next boot requeues it.
+- Re-running a tier: `sessions retranscribe ID`, `sessions rediarize ID`
+  (or `--all`). A re-diarize under new block parameters renames every
+  label (`b{block_start}:…`), which would orphan pins and lose cluster
+  names; `--carry-labels` snapshots each label's identity and spans, plus
+  edited transcripts, into a `label-carry/label-snapshot` artifact that the
+  deletes leave alone. Diarize re-keys pins and assignments onto the new
+  label covering the same speech inside its publish transaction (counts in
+  the map's `carried`); transcribe re-applies an edit to the new utterance
+  covering at least half of it, `edited: true` and no word timings.
 - Priority: plain integer, higher first, default 0. Nothing assigns
   priorities yet; chained jobs inherit their parent's. Constant load at a
   high priority will starve lower ones - there is no aging.

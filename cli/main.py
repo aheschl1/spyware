@@ -22,6 +22,7 @@ from database import DatabaseError, DatabasePipe, close_pool, get_settings
 from database.exceptions import NotFoundError
 from database.schema.sessions import SessionCreate
 from database.schema.users import UserCreate
+from services import label_carry as label_carry_service
 from services import segments as segment_service
 from storage import BlobNotFoundError, BlobPipe, close_blob_client
 from storage import get_settings as get_storage_settings
@@ -408,39 +409,71 @@ async def sessions_retranscribe(session_id: UUID, yes: bool) -> None:
 
 
 @sessions.command("rediarize")
-@click.argument("session_id", type=click.UUID)
+@click.argument("session_id", type=click.UUID, required=False)
+@click.option("--all", "every", is_flag=True, help="Every session that has been diarized.")
+@click.option(
+    "--carry-labels",
+    is_flag=True,
+    help="Snapshot pins, cluster assignments and transcript edits first, and "
+    "re-key them onto the new labels when diarize republishes.",
+)
 @click.option("--yes", is_flag=True, help="Skip the confirmation prompt.")
 @async_command
-async def sessions_rediarize(session_id: UUID, yes: bool) -> None:
+async def sessions_rediarize(
+    session_id: UUID | None, every: bool, carry_labels: bool, yes: bool
+) -> None:
     """Redo a session's diarization (and its transcripts) with the current
     diarizer.
 
     Deletes the diarize and transcribe tiers' artifacts and job history in
     one transaction; the worker's discovery re-runs diarization from the
     surviving speech-map, then re-transcribes the new utterances. Pins are
-    keyed on (session, label, model) and survive. Manual transcript edits
-    are lost.
+    keyed on (session, label, model), so they survive only while the block
+    layout does — under new block parameters use --carry-labels, which maps
+    each old label onto the new label covering the same speech.
     """
+    if (session_id is None) == (not every):
+        raise click.UsageError("give a SESSION_ID or --all, not both")
+    async with DatabasePipe() as pipe:
+        if every:
+            targets = await pipe.label_carry.sessions_with_diarize_map()
+        else:
+            assert session_id is not None
+            if await pipe.sessions.get(session_id) is None:
+                raise NotFoundError("session", str(session_id))
+            targets = [session_id]
+    if not targets:
+        click.echo("nothing to re-diarize")
+        return
     if not yes:
+        what = f"{len(targets)} session(s)" if every else f"session {session_id}"
+        kept = "curation is carried over" if carry_labels else "manual edits are lost"
         click.confirm(
-            f"re-diarize session {session_id}? existing turns, voice-prints "
-            "and transcripts (including manual edits) are deleted",
+            f"re-diarize {what}? existing turns, voice-prints and transcripts "
+            f"are deleted; {kept}",
             abort=True,
         )
-    async with DatabasePipe() as pipe:
-        if await pipe.sessions.get(session_id) is None:
-            raise NotFoundError("session", str(session_id))
-        counts = {}
-        for pipeline in ("diarize", "transcribe", "transcribe-ab"):
-            counts[pipeline] = await pipe.artifacts.delete_for_pipeline(
-                session_id, pipeline
-            )
-            await pipe.jobs.delete_for_session(session_id, pipeline)
-        await pipe.jobs.delete_for_session(session_id, "speaker-cluster")
-    click.echo(
-        f"deleted {counts['diarize']} diarize and {counts['transcribe']} "
-        "transcribe artifact(s); the worker will re-diarize from the speech-map"
+    totals = {"diarize": 0, "transcribe": 0, "labels": 0, "edits": 0}
+    for target in targets:
+        async with DatabasePipe() as pipe:
+            if carry_labels:
+                snap = await label_carry_service.snapshot(pipe, target)
+                totals["labels"] += len(snap.metadata["labels"])
+                totals["edits"] += len(snap.metadata["edits"])
+            for pipeline in ("diarize", "transcribe", "transcribe-ab"):
+                totals[pipeline] = totals.get(pipeline, 0) + await pipe.artifacts.delete_for_pipeline(
+                    target, pipeline
+                )
+                await pipe.jobs.delete_for_session(target, pipeline)
+            await pipe.jobs.delete_for_session(target, "speaker-cluster")
+    message = (
+        f"deleted {totals['diarize']} diarize and {totals['transcribe']} transcribe "
+        f"artifact(s) across {len(targets)} session(s); the worker will re-diarize "
+        "from the speech-maps"
     )
+    if carry_labels:
+        message += f"; carrying {totals['labels']} label(s) and {totals['edits']} edit(s)"
+    click.echo(message)
 
 
 # ------------------------------------------------------------------------ speakers

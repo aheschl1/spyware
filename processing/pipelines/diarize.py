@@ -63,6 +63,7 @@ from database.schema.jobs import Job, JobCreate
 from processing.base import Pipeline
 from processing.clustering import cluster_corpus
 from processing.config import get_settings
+from services import label_carry
 from processing.diarizer import Diarizer, Turn
 from resources import Resource
 from services import stitch, timeline
@@ -728,6 +729,11 @@ class DiarizePipeline(Pipeline):
                     for artifact, (_, vector) in zip(created, embeddings, strict=True)
                 ]
             )
+            snapshot = await label_carry.pending(pipe, job.session_id)
+            if snapshot is not None:
+                map_metadata["carried"] = await label_carry.apply_labels(
+                    pipe, snapshot, job.session_id, utterances
+                )
             await pipe.artifacts.create(
                 ArtifactCreate(
                     pipeline=self.name,
